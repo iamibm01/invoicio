@@ -1,23 +1,47 @@
 import type { Metadata } from "next"
-import { InboxIcon } from "lucide-react"
+import Link from "next/link"
+import { InboxIcon, UploadIcon } from "lucide-react"
 
+import { DocumentsTable } from "@/components/documents-table"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
+import { buttonVariants } from "@/components/ui/button"
+import { apiFetch } from "@/lib/api"
 import { requireUser } from "@/lib/dal"
+import type { DocumentSummary } from "@/lib/documents"
 
 export const metadata: Metadata = { title: "Dashboard · Invoicio" }
 
 export default async function DashboardPage() {
-  const user = await requireUser()
+  const [user, documents] = await Promise.all([requireUser(), apiFetch<DocumentSummary[]>("/documents")])
+
+  const uploadLink = (
+    <Link href="/upload" className={buttonVariants({ size: "sm" })}>
+      <UploadIcon data-icon="inline-start" />
+      Upload
+    </Link>
+  )
 
   return (
     <>
-      <PageHeader title={`Welcome, ${user.name.split(" ")[0]}`} description={user.business.name} />
-      <EmptyState
-        icon={InboxIcon}
-        title="No documents yet"
-        description="Receipt and invoice upload is coming next."
+      <PageHeader
+        title={`Welcome, ${user.name.split(" ")[0]}`}
+        description={user.business.name}
+        actions={documents.length > 0 ? uploadLink : undefined}
       />
+      {documents.length > 0 ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Recent documents</h2>
+          <DocumentsTable documents={documents.slice(0, 10)} />
+        </section>
+      ) : (
+        <EmptyState
+          icon={InboxIcon}
+          title="No documents yet"
+          description="Upload a receipt or invoice to start extraction."
+          action={uploadLink}
+        />
+      )}
     </>
   )
 }

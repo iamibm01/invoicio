@@ -1,7 +1,6 @@
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { setupApp } from '../src/setup-app.js';
@@ -9,7 +8,7 @@ import { setupApp } from '../src/setup-app.js';
 // Runs against the local database. Every business created here is tracked and
 // deleted afterwards (users cascade with their business).
 describe('Auth & tenancy (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: INestApplication;
   let prisma: PrismaService;
   const createdBusinessIds: string[] = [];
   const runId = Date.now().toString(36);

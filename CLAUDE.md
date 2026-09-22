@@ -26,6 +26,9 @@ Positioning: this is an AI document-processing pipeline demonstrated on invoices
 **Storage & Infra**
 - **Local for now:** original files are stored on the local filesystem (`STORAGE_DIR`) and the database is a local PostgreSQL instance. Access files only through a storage service interface (save / read stream / delete by key) so S3 can be swapped in later without touching callers — never pass raw filesystem paths around or store them in the DB, store the storage key.
 - Uploads go through the API (multipart) rather than presigned URLs while storage is local; validate type/size server-side before writing.
+- Implemented as `StorageService` (abstract, inject this) → `LocalStorageService` in `apps/api/src/storage`. Keys look like `{businessId}/{uuid}.{ext}` and are validated against path traversal. Files land in `apps/api/storage/` (gitignored).
+- Upload flow: browser XHR → Next route handler `app/api/documents/route.ts` (streams the body through, adds the bearer token; `/api/*` is excluded from `proxy.ts` because proxy buffers bodies) → `POST /documents`, one file per request. The API identifies file type from magic bytes (`detect-file-type.ts`), never the client Content-Type or extension; limit 10 MB; types PDF/JPG/PNG/HEIC. Upload rules are duplicated in `apps/api/src/documents/upload-rules.ts` and `apps/web/src/lib/upload-rules.ts` — change both.
+- Exact re-uploads (same SHA-256 within a business) return the existing document with `duplicate: true` instead of storing a second copy. Virus scanning is not implemented; the hook point is marked in `DocumentsService.upload`.
 - Deployment: frontend on Vercel, backend on Railway/Render/AWS (decide at Phase 6)
 
 **AI**

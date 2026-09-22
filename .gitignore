@@ -10,7 +10,8 @@ coverage/
 .DS_Store
 
 # Local file storage
-storage/
+# (STORAGE_DIR resolves relative to the API working directory)
+/apps/api/storage/
 
 # Generated Prisma client (run `npm run db:generate`)
 apps/api/src/generated/

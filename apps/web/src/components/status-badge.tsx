@@ -2,12 +2,13 @@ import { Badge } from "@/components/ui/badge"
 
 // Mirrors the pipeline job states and approval workflow states.
 // Replace with the Prisma enums once the schema exists.
-export type DocumentStatus = "processing" | "review" | "done" | "failed"
+export type DocumentStatus = "queued" | "processing" | "review" | "done" | "failed"
 export type ApprovalStatus = "submitted" | "approved" | "rejected"
 
 type BadgeVariant = "secondary" | "info" | "warning" | "success" | "destructive"
 
 const statusConfig: Record<DocumentStatus | ApprovalStatus, { variant: BadgeVariant; label: string }> = {
+  queued: { variant: "secondary", label: "Queued" },
   processing: { variant: "info", label: "Processing" },
   review: { variant: "warning", label: "Needs review" },
   done: { variant: "success", label: "Done" },
