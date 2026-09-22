@@ -79,6 +79,15 @@ Schema: `apps/api/prisma/schema.prisma`. Design decisions worth knowing before c
 - Approval holds current state only; transitions go to `AuditLog`.
 - The init migration adds a CHECK constraint (confidence in 0–1) by hand — keep hand edits like this when regenerating migrations.
 
+### Auth & tenancy
+
+- **API** (`apps/api/src/auth`): stateless JWT bearer tokens, 1-day TTL, payload is only `sub`. `JwtAuthGuard` is global — every route needs a token unless marked `@Public()` — and it reloads the user from the DB on each request, so role changes and deletions apply immediately. `RolesGuard` (also global) enforces `@Roles(UserRole.ADMIN, …)`.
+- **Tenant scoping is explicit:** controllers take `@CurrentUser() user` and pass `user.businessId` into every service method; services put it in every `where`. Never read a businessId from the request body or params.
+- Never select `passwordHash` into a response — use `authUserSelect`. Registration creates a Business plus its first user as ADMIN; admins add further users via `/users`.
+- **Web** (`apps/web`): the browser never calls the API. Server actions call it and keep the token in the httpOnly `invoicio_session` cookie; server code calls the API through `apiFetch` (`lib/api.ts`), which attaches the token. `src/proxy.ts` (Next 16's middleware) only does an optimistic cookie-exists redirect; the real check is `requireUser()` / `getCurrentUser()` in `lib/dal.ts`. Pages under `(app)/` are protected by that layout.
+- Logout only deletes the cookie; tokens aren't revocable server-side until expiry (no refresh tokens or denylist yet).
+- e2e tests (`npm run test:e2e` in apps/api) run against the local DB and delete what they create.
+
 ### Database (Prisma 7, local Postgres)
 
 - Run from `apps/api`: `npm run db:migrate` (create/apply migrations), `npm run db:generate`, `npm run db:seed` (Demo Co + admin/approver/submitter `@demo.test`, password `password123`), `npm run db:studio`.
