@@ -31,6 +31,13 @@ Positioning: this is an AI document-processing pipeline demonstrated on invoices
 - Claude API — vision + tool use, forced structured JSON output
 - OCR pre-pass for scanned/low-quality images: Tesseract (free) or AWS Textract, fed as extra context into the extraction prompt
 
+### UI system (apps/web)
+
+- shadcn/ui on **Base UI** primitives (style `base-nova`), not Radix — compose triggers with the `render` prop (`<DialogTrigger render={<Button />}>`), not `asChild`. Add components with `npx shadcn@latest add <name>`.
+- Tokens live in `src/app/globals.css`. Use the semantic type scale (`text-display` / `text-title` / `text-heading` / `text-body` / `text-caption`) rather than raw `text-sm` etc., `max-w-content` / `max-w-form` for widths, and `tabular` for amounts, dates and scores.
+- Status colors: `success` / `warning` / `info` / `destructive` (Badge and Alert have matching variants). Confidence colors map onto them via `lib/confidence.ts`, which also holds the review thresholds.
+- Shared app components: `ConfidenceBadge`, `StatusBadge`, `PageHeader`, `EmptyState` in `src/components/`. `/design-system` renders every token and component — check new UI there in both themes.
+
 ## Architecture: The Agent Pipeline
 
 This is the core of the project — do not collapse it into a single prompt call. Four distinct steps with explicit state handoff:
