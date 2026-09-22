@@ -15,6 +15,7 @@
     "prisma@7.10.0": true,
     "@prisma/engines@7.10.0": true,
     "msgpackr-extract@3.0.4": true,
-    "unrs-resolver@1.12.2": true
+    "unrs-resolver@1.12.2": true,
+    "esbuild@0.28.2": true
   }
 }

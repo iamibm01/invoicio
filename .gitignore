@@ -11,3 +11,7 @@ coverage/
 
 # Local file storage
 storage/
+
+# Generated Prisma client (run `npm run db:generate`)
+apps/api/src/generated/
+*.tsbuildinfo

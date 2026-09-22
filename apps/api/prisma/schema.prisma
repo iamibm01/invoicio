@@ -1,0 +1,270 @@
+// Invoicio data model.
+//
+// Multi-tenancy: every tenant-owned table carries `businessId`, including
+// child tables (ExtractionField, Correction) that could reach it through a
+// parent. That keeps tenant scoping a plain `where: { businessId }` on every
+// query instead of a join, and makes a missing scope easy to spot in review.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUBMITTER
+  APPROVER
+  ADMIN
+}
+
+/// Lifecycle of an uploaded document through the pipeline.
+enum DocumentStatus {
+  QUEUED // uploaded, waiting for a worker
+  PROCESSING // pipeline running
+  REVIEW // pipeline finished, some fields need a human
+  DONE // all fields confident or reviewed
+  FAILED // pipeline could not produce a usable result
+}
+
+enum DocumentType {
+  RECEIPT
+  INVOICE
+  OTHER
+}
+
+/// Outcome of a single pipeline run. PARTIAL is a first-class result: e.g.
+/// extraction succeeded but validation errored — the fields are still usable.
+enum ExtractionStatus {
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+enum FieldValueType {
+  TEXT
+  NUMBER
+  MONEY
+  DATE
+  CURRENCY_CODE
+}
+
+enum ApprovalStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+// ─── Tenancy & users ────────────────────────────────────────────────────────
+
+model Business {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  name            String
+  /// ISO 4217 code amounts are reported in (e.g. "AED")
+  defaultCurrency String   @default("USD") @db.Char(3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users            User[]
+  vendors          Vendor[]
+  documents        Document[]
+  extractions      Extraction[]
+  extractionFields ExtractionField[]
+  corrections      Correction[]
+  approvals        Approval[]
+  auditLogs        AuditLog[]
+}
+
+model User {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  businessId   String   @db.Uuid
+  /// Globally unique: one account belongs to exactly one business
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole @default(SUBMITTER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business          Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  uploadedDocuments Document[]
+  corrections       Correction[]
+  approvalDecisions Approval[]
+  auditLogs         AuditLog[]
+
+  @@index([businessId])
+}
+
+// ─── Documents & vendors ────────────────────────────────────────────────────
+
+/// Normalized vendor per business. Used for duplicate/anomaly detection and,
+/// later, learned correction patterns.
+model Vendor {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  businessId     String   @db.Uuid
+  name           String
+  /// Lowercased, punctuation-stripped name used for matching ("Careem LLC" → "careem")
+  normalizedName String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@unique([businessId, normalizedName])
+}
+
+model Document {
+  id               String         @id @default(uuid(7)) @db.Uuid
+  businessId       String         @db.Uuid
+  uploadedById     String         @db.Uuid
+  vendorId         String?        @db.Uuid
+  /// Opaque key understood by the storage service — never a filesystem path
+  storageKey       String         @unique
+  originalFilename String
+  mimeType         String
+  sizeBytes        Int
+  /// SHA-256 of the file bytes; catches exact re-uploads before any AI runs
+  checksum         String         @db.Char(64)
+  status           DocumentStatus @default(QUEUED)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  uploadedBy  User         @relation(fields: [uploadedById], references: [id], onDelete: NoAction)
+  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  extractions Extraction[]
+  approval    Approval?
+
+  @@index([businessId, status])
+  @@index([businessId, createdAt])
+  @@index([businessId, checksum])
+  @@index([vendorId])
+}
+
+// ─── Extraction pipeline output ─────────────────────────────────────────────
+
+/// One pipeline run over a document. Re-processing creates a new row, so the
+/// history of runs (and which model/prompt produced them) is kept.
+model Extraction {
+  id            String           @id @default(uuid(7)) @db.Uuid
+  businessId    String           @db.Uuid
+  documentId    String           @db.Uuid
+  status        ExtractionStatus @default(RUNNING)
+  /// Classifier output; null until classification has run
+  documentType  DocumentType?
+  /// Model id and prompt version, so accuracy can be compared across runs
+  model         String
+  promptVersion String
+  /// Number of attempts made after malformed/invalid model output
+  attempts      Int              @default(1)
+  /// Unparsed model output, kept for debugging and evaluation
+  rawOutput     Json?
+  /// Per-step errors, e.g. { validation: "..." } for a PARTIAL run
+  errors        Json?
+  startedAt     DateTime         @default(now())
+  completedAt   DateTime?
+
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  document Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fields   ExtractionField[]
+
+  @@index([businessId])
+  @@index([documentId, startedAt])
+}
+
+/// A single extracted value with its confidence. Line items are flattened into
+/// fields with a path like "lineItems.0.amount" so every value — header or line
+/// item — can be scored, reviewed and corrected the same way.
+model ExtractionField {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  businessId   String         @db.Uuid
+  extractionId String         @db.Uuid
+  /// e.g. "vendorName", "total", "lineItems.0.amount"
+  path         String
+  valueType    FieldValueType
+  /// Canonical string form: ISO date, plain decimal ("84.50"), ISO currency code.
+  /// Null when the model could not find the field at all.
+  value        String?
+  /// 0–1. Review thresholds live in application code, not the database.
+  confidence   Float
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  extraction  Extraction   @relation(fields: [extractionId], references: [id], onDelete: Cascade)
+  corrections Correction[]
+
+  @@unique([extractionId, path])
+  @@index([businessId])
+}
+
+// ─── Human-in-the-loop ──────────────────────────────────────────────────────
+
+/// A user's edit to an extracted field. The field row is never overwritten, so
+/// the original AI value is always recoverable; the latest correction wins.
+model Correction {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  businessId        String   @db.Uuid
+  extractionFieldId String   @db.Uuid
+  userId            String   @db.Uuid
+  /// Field value at the time of the edit (AI value, or a previous correction)
+  previousValue     String?
+  correctedValue    String?
+  createdAt         DateTime @default(now())
+
+  business        Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  extractionField ExtractionField @relation(fields: [extractionFieldId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: NoAction)
+
+  @@index([businessId])
+  @@index([extractionFieldId, createdAt])
+}
+
+/// Current approval state of a document. History of transitions is recorded
+/// in AuditLog rather than as multiple rows here.
+model Approval {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  businessId  String         @db.Uuid
+  documentId  String         @unique @db.Uuid
+  status      ApprovalStatus @default(SUBMITTED)
+  decidedById String?        @db.Uuid
+  decidedAt   DateTime?
+  comment     String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  document  Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  decidedBy User?    @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([businessId, status])
+}
+
+// ─── Audit ──────────────────────────────────────────────────────────────────
+
+/// Append-only record of who did what. `entityType`/`entityId` are
+/// deliberately not foreign keys so entries survive deletion of the entity.
+model AuditLog {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @db.Uuid
+  /// Null for actions taken by the system (e.g. the extraction pipeline)
+  actorId    String?  @db.Uuid
+  /// Dotted verb, e.g. "document.uploaded", "field.corrected", "approval.rejected"
+  action     String
+  entityType String
+  entityId   String   @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@index([businessId, entityType, entityId])
+}

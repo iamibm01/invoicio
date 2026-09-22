@@ -72,6 +72,20 @@ Low-confidence fields are surfaced in an editable review UI, original document s
 
 Keep tenant scoping (`businessId`) on every query from day one — retrofitting multi-tenancy later is painful.
 
+Schema: `apps/api/prisma/schema.prisma`. Design decisions worth knowing before changing it:
+- `businessId` is denormalized onto child tables too (ExtractionField, Correction) so scoping never needs a join.
+- Line items are flattened into `ExtractionField` rows with paths like `lineItems.0.amount`, so every value is scored/reviewed/corrected the same way. Values are canonical strings (ISO date, plain decimal); `valueType` says how to parse.
+- Fields are never overwritten — corrections are separate rows and the latest wins. Re-processing a document creates a new `Extraction`.
+- Approval holds current state only; transitions go to `AuditLog`.
+- The init migration adds a CHECK constraint (confidence in 0–1) by hand — keep hand edits like this when regenerating migrations.
+
+### Database (Prisma 7, local Postgres)
+
+- Run from `apps/api`: `npm run db:migrate` (create/apply migrations), `npm run db:generate`, `npm run db:seed` (Demo Co + admin/approver/submitter `@demo.test`, password `password123`), `npm run db:studio`.
+- Prisma 7 specifics: config is in `prisma.config.ts` (not the schema); `migrate dev` does **not** run generate; the client is generated to `src/generated/prisma` (gitignored — regenerate after pulling) and imported from `../generated/prisma/client.js`; it connects through `@prisma/adapter-pg`.
+- Inject `PrismaService` (global `PrismaModule`); don't construct `PrismaClient` elsewhere in the app.
+- Local `DATABASE_URL` uses the unix socket with peer auth: `postgresql://<user>@localhost/invoicio?host=/var/run/postgresql`.
+
 ## Build Phases (see Notion board "Invoicio — Build Plan" for the full task breakdown)
 
 1. **Foundation** — repo setup, Prisma schema, local file storage, auth, upload UI, shadcn/ui design system
