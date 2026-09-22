@@ -1,0 +1,20 @@
+{
+  "name": "invoicio",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @invoicio/web",
+    "dev:api": "npm run start:dev -w @invoicio/api",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "test": "npm run test -w @invoicio/api"
+  },
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "msgpackr-extract@3.0.4": true,
+    "unrs-resolver@1.12.2": true
+  }
+}
