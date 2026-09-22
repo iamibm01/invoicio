@@ -24,7 +24,8 @@ Positioning: this is an AI document-processing pipeline demonstrated on invoices
 - JWT auth, role-based access (submitter / approver / admin), multi-tenant scoping on all queries (business/org level)
 
 **Storage & Infra**
-- AWS S3 for original file storage (presigned URLs for upload)
+- **Local for now:** original files are stored on the local filesystem (`STORAGE_DIR`) and the database is a local PostgreSQL instance. Access files only through a storage service interface (save / read stream / delete by key) so S3 can be swapped in later without touching callers — never pass raw filesystem paths around or store them in the DB, store the storage key.
+- Uploads go through the API (multipart) rather than presigned URLs while storage is local; validate type/size server-side before writing.
 - Deployment: frontend on Vercel, backend on Railway/Render/AWS (decide at Phase 6)
 
 **AI**
@@ -61,7 +62,7 @@ Low-confidence fields are surfaced in an editable review UI, original document s
 
 - `Business` — tenant root
 - `User` — role: submitter / approver / admin, scoped to a Business
-- `Document` — uploaded file metadata, S3 reference, status
+- `Document` — uploaded file metadata, storage key, status
 - `Extraction` — pipeline run output, linked to a Document
 - `ExtractionField` — individual field + value + confidence score, linked to an Extraction
 - `Correction` — user edit to a field, linked to an ExtractionField, preserves original AI value
@@ -73,7 +74,7 @@ Keep tenant scoping (`businessId`) on every query from day one — retrofitting 
 
 ## Build Phases (see Notion board "Invoicio — Build Plan" for the full task breakdown)
 
-1. **Foundation** — repo setup, Prisma schema, S3, auth, upload UI, shadcn/ui design system
+1. **Foundation** — repo setup, Prisma schema, local file storage, auth, upload UI, shadcn/ui design system
 2. **Extraction Core** — OCR pre-pass, single extraction call with confidence scoring, retry logic, async queue
 3. **Agentic Pipeline** — split into classify → extract → validate → categorize, with explicit orchestration and failure handling
 4. **Business Features** — dashboard, approval workflow, CSV/QuickBooks export, duplicate detection, audit trail
@@ -104,9 +105,7 @@ Target: a concrete accuracy metric for the portfolio writeup (e.g. "X% field-lev
 ```
 DATABASE_URL=
 REDIS_URL=
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
-AWS_S3_BUCKET=
+STORAGE_DIR=./storage
 ANTHROPIC_API_KEY=
 JWT_SECRET=
 ```
