@@ -44,4 +44,4 @@ Labelling rules:
 - **Label what the document says, not what it should say.** If the line items don't add up to the total, label both as printed; catching that is the validation agent's job.
 - **Number line items top to bottom**, starting at 0.
 
-The field list is provisional until the Phase 2 extraction schema is fixed. Relabelling a handful of receipts is cheap, so keep the first batch to around 15–20 documents.
+The fields and their value types are defined in `src/extractions/extraction.schema.ts`: `vendorName`, `documentNumber`, `date`, `currency`, `subtotal`, `tax`, `total`, and per line item `description`, `quantity` (NUMBER) and `amount`. Keep the first batch to around 15–20 documents; relabelling a small set is cheap if the schema changes.
