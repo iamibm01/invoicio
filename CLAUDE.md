@@ -109,6 +109,16 @@ Schema: `apps/api/prisma/schema.prisma`. Design decisions worth knowing before c
 
 Build in this order. Get Phase 1–2 working end-to-end with a single extraction call before splitting into the multi-agent pipeline in Phase 3 — don't build the orchestration layer against an extraction step that doesn't work yet.
 
+Deliberate exceptions to the phase order (reflected on the Notion board):
+- The prompt eval framework and gathering own test data happen in **Phase 2**, since the extraction prompt and confidence thresholds need labelled data to tune against.
+- The review UI and correction storage (Phase 5 must-haves) are built **right after Phase 2**, before Phase 3/4, so the upload → extract → review path is demoable early.
+
+### Evals
+
+- Scorer and dataset loader in `apps/api/src/evals/`; datasets in `apps/api/evals/datasets/<name>/labels.json` (format in the README there). `own/` holds personal receipts and is gitignored.
+- Labels use the same flattened `path` / `valueType` / canonical `value` shape as `ExtractionField`.
+- Besides accuracy, the summary reports accuracy per confidence level and **silent errors** (wrong values scored at or above the high threshold, which the review UI wouldn't flag). Use these to set the thresholds in `apps/web/src/lib/confidence.ts`.
+
 ## Test Data Sources
 
 - Own real receipts/invoices (Uber/Careem, SaaS subscription emails, freelance client invoices) — best for realistic messiness

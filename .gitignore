@@ -16,3 +16,6 @@ coverage/
 # Generated Prisma client (run `npm run db:generate`)
 apps/api/src/generated/
 *.tsbuildinfo
+
+# Personal receipts/invoices used for evals
+/apps/api/evals/datasets/own/
