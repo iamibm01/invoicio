@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, UnsupportedMediaTypeException } 
 import { createHash, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { AuthUser } from '../auth/auth.types.js';
+import { ExtractionQueue } from '../extractions/extraction-queue.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { detectFileType } from './detect-file-type.js';
@@ -30,6 +31,7 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly extractionQueue: ExtractionQueue,
   ) {}
 
   async upload(user: AuthUser, file: UploadedFile) {
@@ -53,8 +55,8 @@ export class DocumentsService {
     const storageKey = `${user.businessId}/${randomUUID()}.${ALLOWED_TYPES[mimeType]}`;
     await this.storage.put(storageKey, file.buffer);
 
-    try {
-      const document = await this.prisma.$transaction(async (tx) => {
+    const document = await this.prisma
+      .$transaction(async (tx) => {
         const created = await tx.document.create({
           data: {
             businessId: user.businessId,
@@ -78,14 +80,29 @@ export class DocumentsService {
           },
         });
         return created;
+      })
+      .catch(async (error: unknown) => {
+        // Don't leave an orphaned file behind if the database write failed.
+        await this.storage.delete(storageKey).catch((cleanupError: unknown) => {
+          this.logger.error(`Failed to clean up ${storageKey}`, cleanupError);
+        });
+        throw error;
       });
-      return { document, duplicate: false };
+
+    await this.enqueueExtraction(user.businessId, document.id);
+    return { document, duplicate: false };
+  }
+
+  /**
+   * The upload has already succeeded at this point, so a Redis outage
+   * shouldn't turn it into an error for the user. The document stays QUEUED,
+   * and ExtractionRecoveryService enqueues it when the worker next starts.
+   */
+  private async enqueueExtraction(businessId: string, documentId: string) {
+    try {
+      await this.extractionQueue.enqueue({ businessId, documentId });
     } catch (error) {
-      // Don't leave an orphaned file behind if the database write failed.
-      await this.storage.delete(storageKey).catch((cleanupError: unknown) => {
-        this.logger.error(`Failed to clean up ${storageKey}`, cleanupError);
-      });
-      throw error;
+      this.logger.error(`Could not enqueue extraction for document ${documentId}`, error);
     }
   }
 

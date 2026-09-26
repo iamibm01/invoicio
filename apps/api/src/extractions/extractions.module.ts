@@ -1,9 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
+import { ExtractionQueue, EXTRACTION_QUEUE } from './extraction-queue.js';
+import { ExtractionRecoveryService } from './extraction-recovery.service.js';
+import { ExtractionProcessor } from './extraction.processor.js';
 import { ExtractionsService } from './extractions.service.js';
 import { ExtractorService } from './extractor.service.js';
 
 @Module({
+  imports: [BullModule.registerQueue({ name: EXTRACTION_QUEUE })],
   providers: [
     {
       provide: Anthropic,
@@ -14,7 +19,10 @@ import { ExtractorService } from './extractor.service.js';
     },
     ExtractorService,
     ExtractionsService,
+    ExtractionQueue,
+    ExtractionProcessor,
+    ExtractionRecoveryService,
   ],
-  exports: [ExtractionsService],
+  exports: [ExtractionsService, ExtractionQueue],
 })
 export class ExtractionsModule {}
