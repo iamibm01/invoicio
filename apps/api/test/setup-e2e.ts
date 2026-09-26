@@ -13,6 +13,10 @@ process.env.QUEUE_PREFIX = `invoicio-test-${randomUUID()}`;
 // API calls.
 process.env.EXTRACTION_WORKER ??= 'off';
 
+// The startup recovery sweep acts on every business in the database, and the
+// e2e database is the dev database. Tests call the scoped recover() instead.
+process.env.EXTRACTION_RECOVERY = 'off';
+
 afterAll(async () => {
   const queue = new Queue(EXTRACTION_QUEUE, {
     connection: { url: process.env.REDIS_URL },

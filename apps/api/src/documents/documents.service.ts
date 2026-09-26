@@ -5,6 +5,7 @@ import type { AuthUser } from '../auth/auth.types.js';
 import { ExtractionQueue } from '../extractions/extraction-queue.js';
 import { compareFieldPaths } from '../extractions/extraction.schema.js';
 import { reviewReasons } from '../extractions/review-policy.js';
+import { currentValue, latestCorrection } from '../reviews/latest-correction.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { detectFileType } from './detect-file-type.js';
@@ -139,7 +140,16 @@ export class DocumentsService {
             errors: true,
             startedAt: true,
             completedAt: true,
-            fields: { select: { id: true, path: true, valueType: true, value: true, confidence: true } },
+            fields: {
+              select: {
+                id: true,
+                path: true,
+                valueType: true,
+                value: true,
+                confidence: true,
+                corrections: latestCorrection,
+              },
+            },
           },
         },
       },
@@ -150,15 +160,30 @@ export class DocumentsService {
     const latest = extractions[0];
     if (!latest) return { ...summary, extraction: null };
 
-    const fields = latest.fields.sort((a, b) => compareFieldPaths(a.path, b.path));
+    const modelFields = latest.fields.sort((a, b) => compareFieldPaths(a.path, b.path));
+    // `value` is what currently counts (the latest correction, if any);
+    // `aiValue` keeps the model's answer, so the UI can show what changed.
+    // Confidence is always the model's: a corrected field shows who
+    // corrected it instead.
+    const fields = modelFields.map(({ corrections, value, ...field }) => {
+      const correction = corrections[0];
+      return {
+        ...field,
+        value: currentValue({ value, corrections }),
+        aiValue: value,
+        correction: correction ? { by: correction.user.name, at: correction.createdAt } : null,
+      };
+    });
+
     return {
       ...summary,
       extraction: {
         ...latest,
         fields,
-        // Recomputed rather than stored, so it always reflects the current
-        // policy (the audit log keeps the reasons as they were at the time).
-        reviewReasons: latest.status === 'SUCCEEDED' ? reviewReasons(fields) : [],
+        // Why the model's output was flagged: judged on the model's values,
+        // and recomputed so it reflects the current policy (the audit log
+        // keeps the reasons as they were at the time).
+        reviewReasons: latest.status === 'SUCCEEDED' ? reviewReasons(modelFields) : [],
       },
     };
   }

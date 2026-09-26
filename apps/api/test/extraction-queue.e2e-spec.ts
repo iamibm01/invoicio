@@ -115,7 +115,7 @@ describe('Extraction queue (e2e)', () => {
       data: { status: 'PROCESSING', updatedAt: new Date(Date.now() - 60 * 60 * 1000) },
     });
 
-    await app.get(ExtractionRecoveryService).onApplicationBootstrap();
+    await app.get(ExtractionRecoveryService).recover({ businessId });
 
     await waitForStatus(documentId, 'DONE');
     const runs = await prisma.extraction.count({ where: { documentId } });
@@ -124,7 +124,7 @@ describe('Extraction queue (e2e)', () => {
 
   it('leaves a recently updated PROCESSING document alone', async () => {
     await prisma.document.update({ where: { id: documentId }, data: { status: 'PROCESSING' } });
-    await app.get(ExtractionRecoveryService).onApplicationBootstrap();
+    await app.get(ExtractionRecoveryService).recover({ businessId });
 
     const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     expect(doc.status).toBe('PROCESSING');

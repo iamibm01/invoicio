@@ -36,21 +36,44 @@ export class ExtractionRecoveryService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap() {
     // Only the process that runs the worker should repair its state.
-    if (this.config.get('EXTRACTION_WORKER') === 'off') return;
+    // EXTRACTION_RECOVERY=off skips the startup sweep: e2e tests set it, since
+    // they share the database with dev data and must never sweep it.
+    if (
+      this.config.get('EXTRACTION_WORKER') === 'off' ||
+      this.config.get('EXTRACTION_RECOVERY') === 'off'
+    ) {
+      return;
+    }
+    await this.recover();
+  }
 
+  /**
+   * `businessId` narrows the sweep to one tenant. Startup always sweeps
+   * everything; the scope exists so tests sharing a database with other
+   * tests (and with dev data) only touch their own documents.
+   */
+  async recover(scope: { businessId?: string } = {}) {
     const { count: reset } = await this.prisma.document.updateMany({
-      where: { status: DocumentStatus.PROCESSING, updatedAt: { lt: new Date(Date.now() - STALE_AFTER_MS) } },
+      where: {
+        ...scope,
+        status: DocumentStatus.PROCESSING,
+        updatedAt: { lt: new Date(Date.now() - STALE_AFTER_MS) },
+      },
       data: { status: DocumentStatus.QUEUED },
     });
 
     const queued = await this.prisma.document.findMany({
-      where: { status: DocumentStatus.QUEUED },
+      where: { ...scope, status: DocumentStatus.QUEUED },
       select: { id: true, businessId: true },
     });
-    for (const doc of queued) await this.queue.enqueue({ businessId: doc.businessId, documentId: doc.id });
+    for (const doc of queued) {
+      await this.queue.enqueue({ businessId: doc.businessId, documentId: doc.id });
+    }
 
     if (reset > 0 || queued.length > 0) {
-      this.logger.log(`Recovered ${reset} stale document(s); enqueued ${queued.length} queued document(s)`);
+      this.logger.log(
+        `Recovered ${reset} stale document(s); enqueued ${queued.length} queued document(s)`,
+      );
     }
   }
 }
