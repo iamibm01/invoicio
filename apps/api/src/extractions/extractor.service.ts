@@ -20,8 +20,15 @@ export interface ExtractionResult {
   model: string;
   promptVersion: string;
   attempts: number;
+  /** Tokens billed across all attempts, including rejected ones. */
+  usage: TokenUsage;
   /** Every raw response, including rejected ones, for debugging and evals. */
   rawOutputs: unknown[];
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
 }
 
 /**
@@ -73,10 +80,14 @@ export class ExtractorService {
     const initial: Anthropic.Beta.BetaMessageParam[] = buildExtractionMessages(document);
     let messages = initial;
     const rawOutputs: unknown[] = [];
+    const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const response = await this.call(messages, attempt, rawOutputs);
       rawOutputs.push(response.content);
+      // Output tokens include thinking, which is billed even when it isn't displayed.
+      usage.inputTokens += response.usage.input_tokens;
+      usage.outputTokens += response.usage.output_tokens;
 
       const result = this.check(response);
       if (result.ok) {
@@ -86,6 +97,7 @@ export class ExtractorService {
           model: response.model,
           promptVersion: PROMPT_VERSION,
           attempts: attempt,
+          usage,
           rawOutputs,
         };
       }

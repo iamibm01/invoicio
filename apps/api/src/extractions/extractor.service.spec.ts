@@ -24,6 +24,7 @@ function response(text: string | null, stop_reason: StopReason = 'end_turn', mod
     stop_reason,
     stop_details: stop_reason === 'refusal' ? { type: 'refusal', category: 'cyber', explanation: null } : null,
     content: text === null ? [] : [{ type: 'text', text }],
+    usage: { input_tokens: 1000, output_tokens: 200 },
   } as unknown as Anthropic.Beta.BetaMessage;
 }
 
@@ -73,6 +74,8 @@ describe('ExtractorService', () => {
 
     expect(result.attempts).toBe(2);
     expect(result.rawOutputs).toHaveLength(2);
+    // The rejected attempt was still billed.
+    expect(result.usage).toEqual({ inputTokens: 2000, outputTokens: 400 });
 
     // Second call = original conversation + the bad answer + the validation errors.
     const retry = create.mock.calls[1][0].messages;

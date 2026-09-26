@@ -45,6 +45,7 @@ describe('Extractions (e2e)', () => {
     model,
     promptVersion: 'extract-v1',
     attempts: 1,
+    usage: { inputTokens: 1000, outputTokens: 200 },
     rawOutputs: [[{ type: 'text', text: JSON.stringify(o) }]],
   });
 
