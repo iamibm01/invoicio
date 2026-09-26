@@ -19,3 +19,5 @@ apps/api/src/generated/
 
 # Personal receipts/invoices used for evals
 /apps/api/evals/datasets/own/
+# SROIE is licensed for research use; keep the images and derived labels local
+/apps/api/evals/datasets/sroie/

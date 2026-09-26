@@ -11,9 +11,14 @@ evals/datasets/
     labels.json
     careem-2026-08-14.jpg
     ...
-  sroie/          # public labelled sets, added in Phase 6
+  sroie/          # SROIE receipts (gitignored: research licence)
   synthetic/      # generated edge cases: blurry, rotated, multi-currency...
 ```
+
+## Building labels
+
+- **SROIE:** `npm run import-sroie -- <SROIE entities dir> <dataset dir>` writes the official company/date/total answers for every image in the dataset dir. These are independent ground truth and replace existing values for those fields.
+- **Drafts:** `npm run extract -- <files> --labels <dataset dir>/labels.json` adds the model's output for fields that have no label yet. It never overwrites existing labels. Check every drafted field by hand against the image: an unchecked draft scores the model against itself. Confidence is left out of drafts on purpose, so confident mistakes don't get skipped.
 
 ## `labels.json`
 

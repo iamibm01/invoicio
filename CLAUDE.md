@@ -117,6 +117,7 @@ Deliberate exceptions to the phase order (reflected on the Notion board):
 
 - Scorer and dataset loader in `apps/api/src/evals/`; datasets in `apps/api/evals/datasets/<name>/labels.json` (format in the README there). `own/` holds personal receipts and is gitignored.
 - Labels use the same flattened `path` / `valueType` / canonical `value` shape as `ExtractionField`.
+- `npm run extract -- <files> [--json] [--labels <labels.json>]` (apps/api) runs real extractions on local files without the DB and prints fields, confidence, cost; `--labels` fills unlabelled fields as drafts. `npm run import-sroie` writes SROIE's official answers (authoritative; drafts never overwrite them). `sroie/` is gitignored.
 - Besides accuracy, the summary reports accuracy per confidence level and **silent errors** (wrong values scored at or above the high threshold, which the review UI wouldn't flag). Use these to set the thresholds in `apps/web/src/lib/confidence.ts`.
 
 ## Test Data Sources

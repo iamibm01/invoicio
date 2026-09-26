@@ -26,7 +26,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "extract": "tsx scripts/extract.ts"
+    "extract": "tsx scripts/extract.ts",
+    "import-sroie": "tsx scripts/import-sroie.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
