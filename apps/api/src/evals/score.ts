@@ -1,3 +1,4 @@
+import { CONFIDENCE_THRESHOLDS } from '../extractions/review-policy.js';
 import { FieldValueType } from '../generated/prisma/enums.js';
 
 /** A ground-truth field, in the same flattened shape as `ExtractionField`. */
@@ -30,16 +31,15 @@ export interface DocumentScore {
 }
 
 /**
- * Mirrors CONFIDENCE_THRESHOLDS in apps/web/src/lib/confidence.ts. Passed in
- * rather than imported so an eval can try candidate thresholds before
- * changing the ones the UI uses.
+ * Passed in rather than hard-coded so an eval can try candidate thresholds
+ * before changing the ones the pipeline and UI use.
  */
 export interface Thresholds {
   high: number;
   medium: number;
 }
 
-export const DEFAULT_THRESHOLDS: Thresholds = { high: 0.9, medium: 0.7 };
+export const DEFAULT_THRESHOLDS: Thresholds = CONFIDENCE_THRESHOLDS;
 
 interface Tally {
   total: number;

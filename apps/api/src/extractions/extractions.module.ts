@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Module } from '@nestjs/common';
+import { ExtractionsService } from './extractions.service.js';
 import { ExtractorService } from './extractor.service.js';
 
 @Module({
@@ -12,7 +13,8 @@ import { ExtractorService } from './extractor.service.js';
       useFactory: () => new Anthropic({ maxRetries: 3 }),
     },
     ExtractorService,
+    ExtractionsService,
   ],
-  exports: [ExtractorService],
+  exports: [ExtractionsService],
 })
 export class ExtractionsModule {}
