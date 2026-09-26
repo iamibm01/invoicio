@@ -26,9 +26,14 @@ export interface ExtractionField {
   /** e.g. "total", "lineItems.0.amount" */
   path: string
   valueType: FieldValueType
-  /** Canonical string (ISO date, plain decimal); null when not on the document */
+  /** Current value: the latest correction if any, else the model's. Canonical string; null = not on the document */
   value: string | null
+  /** What the model extracted, kept even after a correction */
+  aiValue: string | null
+  /** The model's confidence in aiValue */
   confidence: number
+  /** Latest human correction, if the field was edited */
+  correction: { by: string; at: string } | null
 }
 
 export type FailureKind = "refused" | "malformed" | "api" | "internal"

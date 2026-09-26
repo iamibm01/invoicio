@@ -6,6 +6,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Every message the API returned; Nest validation errors can carry several */
+    readonly messages: string[] = [message],
   ) {
     super(message)
   }
@@ -33,8 +35,8 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { message?: string | string[] } | null
     // Nest validation errors arrive as an array of messages
-    const message = Array.isArray(body?.message) ? body.message[0] : body?.message
-    throw new ApiError(res.status, message ?? res.statusText)
+    const messages = Array.isArray(body?.message) ? body.message : body?.message ? [body.message] : []
+    throw new ApiError(res.status, messages[0] ?? res.statusText, messages.length > 0 ? messages : undefined)
   }
   return (await res.json()) as T
 }

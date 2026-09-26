@@ -17,7 +17,7 @@ import {
 } from "@/lib/documents"
 
 import { DocumentPreview } from "./document-preview"
-import { ExtractedFields } from "./extracted-fields"
+import { ReviewForm } from "./review-form"
 
 export const metadata: Metadata = { title: "Document · Invoicio" }
 
@@ -57,6 +57,10 @@ function isRetryPending(document: DocumentDetail, now = Date.now()): boolean {
     run.completedAt != null &&
     now - new Date(run.completedAt).getTime() < RETRY_WINDOW_MS
   )
+}
+
+function latestCorrectionAt(run: ExtractionRun): string {
+  return run.fields.reduce((latest, f) => (f.correction && f.correction.at > latest ? f.correction.at : latest), "")
 }
 
 function formatDuration(run: ExtractionRun): string | null {
@@ -101,7 +105,7 @@ export default async function DocumentPage({ params }: PageProps<"/documents/[id
   } else {
     panel = (
       <div className="flex flex-col gap-4">
-        {run.reviewReasons.length > 0 && (
+        {document.status === "REVIEW" && run.reviewReasons.length > 0 && (
           <Alert variant="warning">
             <AlertTriangleIcon />
             <AlertTitle>Needs review</AlertTitle>
@@ -114,7 +118,13 @@ export default async function DocumentPage({ params }: PageProps<"/documents/[id
             </AlertDescription>
           </Alert>
         )}
-        <ExtractedFields fields={run.fields} />
+        {/* Keyed on what a save changes, so the form remounts with fresh values after one. */}
+        <ReviewForm
+          key={`${document.status}:${latestCorrectionAt(run)}`}
+          documentId={document.id}
+          status={document.status}
+          fields={run.fields}
+        />
       </div>
     )
   }

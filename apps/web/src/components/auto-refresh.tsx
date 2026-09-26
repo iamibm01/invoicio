@@ -26,11 +26,16 @@ export function AutoRefresh({ active, intervalMs = 2000 }: AutoRefreshProps) {
 
   useEffect(() => {
     if (!active) return
-    const id = setInterval(() => {
-      // Don't poll from a background tab.
+    const refreshIfVisible = () => {
+      // Background tabs don't poll; they catch up the moment they're shown again.
       if (document.visibilityState === "visible") router.refresh()
-    }, intervalMs)
-    return () => clearInterval(id)
+    }
+    const id = setInterval(refreshIfVisible, intervalMs)
+    document.addEventListener("visibilitychange", refreshIfVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener("visibilitychange", refreshIfVisible)
+    }
   }, [active, intervalMs, router])
 
   return null
