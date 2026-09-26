@@ -1,4 +1,4 @@
-import { extractionOutputSchema, flattenExtraction, type ExtractionOutput } from './extraction.schema.js';
+import { compareFieldPaths, extractionOutputSchema, flattenExtraction, type ExtractionOutput } from './extraction.schema.js';
 
 const s = (value: string | null, confidence = 0.9) => ({ value, confidence });
 
@@ -68,5 +68,19 @@ describe('flattenExtraction', () => {
       value: null,
       confidence: 0.7,
     });
+  });
+});
+
+describe('compareFieldPaths', () => {
+  it('orders top-level fields as declared, then line items numerically', () => {
+    const shuffled = ['lineItems.10.amount', 'total', 'lineItems.2.amount', 'vendorName', 'lineItems.2.description', 'date'];
+    expect(shuffled.sort(compareFieldPaths)).toEqual([
+      'vendorName',
+      'date',
+      'total',
+      'lineItems.2.description',
+      'lineItems.2.amount',
+      'lineItems.10.amount',
+    ]);
   });
 });

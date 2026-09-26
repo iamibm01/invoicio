@@ -199,6 +199,53 @@ describe('Extractions (e2e)', () => {
     expect((await load(documentId)).status).toBe('QUEUED');
   });
 
+  describe('GET /documents/:id', () => {
+    const get = (id: string) =>
+      request(app.getHttpServer()).get(`/documents/${id}`).set('Authorization', `Bearer ${tenant.token}`);
+
+    it('returns no extraction for a document that has not run yet', async () => {
+      const documentId = await uploadDocument();
+      const res = await get(documentId).expect(200);
+      expect(res.body).toMatchObject({ id: documentId, status: 'QUEUED', extraction: null });
+    });
+
+    it('returns the latest run with fields in document order and review reasons', async () => {
+      const documentId = await uploadDocument();
+      extract.mockResolvedValueOnce(result(output({ currency: s('USD', 0.6) })));
+      await extractions.run(tenant.businessId, documentId);
+
+      const res = await get(documentId).expect(200);
+      expect(res.body.status).toBe('REVIEW');
+      expect(res.body.extraction).toMatchObject({
+        status: 'SUCCEEDED',
+        reviewReasons: ['low confidence: currency'],
+      });
+      expect(res.body.extraction.fields.map((f: { path: string }) => f.path)).toEqual(
+        flattenExtraction(output()).map((f) => f.path),
+      );
+      expect(res.body.extraction).not.toHaveProperty('rawOutput');
+    });
+
+    it("returns 404 for another business's document", async () => {
+      const documentId = await uploadDocument();
+      const other = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          businessName: 'other Inc',
+          name: 'other',
+          email: `other-${runId}@e2e.test`,
+          password: 'correct-horse-battery',
+        })
+        .expect(201);
+      createdBusinessIds.push(other.body.user.businessId);
+
+      await request(app.getHttpServer())
+        .get(`/documents/${documentId}`)
+        .set('Authorization', `Bearer ${other.body.accessToken}`)
+        .expect(404);
+    });
+  });
+
   it('lets only one of two concurrent runs claim a document', async () => {
     const documentId = await uploadDocument();
     extract.mockResolvedValue(result(output()));

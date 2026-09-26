@@ -36,6 +36,11 @@ export class DocumentsController {
     return this.documents.list(user.businessId);
   }
 
+  @Get(':id')
+  detail(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.documents.getDetail(user.businessId, id);
+  }
+
   @Get(':id/file')
   async file(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     const { stream, mimeType, filename } = await this.documents.getFile(user.businessId, id);

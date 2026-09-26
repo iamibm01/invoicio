@@ -72,6 +72,25 @@ const LINE_ITEM: Record<keyof z.infer<typeof lineItemSchema>, FieldValueType> = 
   amount: FieldValueType.MONEY,
 };
 
+const TOP_LEVEL_ORDER = Object.keys(TOP_LEVEL);
+const LINE_ITEM_ORDER = Object.keys(LINE_ITEM);
+
+/**
+ * Sorts field paths into document order: top-level fields as declared, then
+ * line items by index. Rows come back from the database in no guaranteed
+ * order, and "lineItems.10" must sort after "lineItems.9".
+ */
+export function compareFieldPaths(a: string, b: string): number {
+  const key = (p: string): [number, number, number] => {
+    const item = /^lineItems\.(\d+)\.(\w+)$/.exec(p);
+    if (item) return [TOP_LEVEL_ORDER.length, Number(item[1]), LINE_ITEM_ORDER.indexOf(item[2])];
+    const top = TOP_LEVEL_ORDER.indexOf(p);
+    return [top === -1 ? TOP_LEVEL_ORDER.length + 1 : top, 0, 0];
+  };
+  const [ka, kb] = [key(a), key(b)];
+  return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2];
+}
+
 /**
  * Flattens the nested model output into one row per field, e.g.
  * `lineItems.0.amount`. This is the shape stored as ExtractionField and the

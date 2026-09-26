@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { AuthUser } from '../auth/auth.types.js';
 import { ExtractionQueue } from '../extractions/extraction-queue.js';
+import { compareFieldPaths } from '../extractions/extraction.schema.js';
+import { reviewReasons } from '../extractions/review-policy.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { detectFileType } from './detect-file-type.js';
@@ -113,6 +115,52 @@ export class DocumentsService {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+  }
+
+  /**
+   * A document with its most recent extraction run. Earlier runs are kept in
+   * the database for comparison, but only the latest one is shown. Raw model
+   * output is deliberately left out: it's for debugging, not for display.
+   */
+  async getDetail(businessId: string, id: string) {
+    const document = await this.prisma.document.findFirst({
+      where: { id, businessId },
+      select: {
+        ...documentSummarySelect,
+        extractions: {
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            model: true,
+            promptVersion: true,
+            attempts: true,
+            errors: true,
+            startedAt: true,
+            completedAt: true,
+            fields: { select: { id: true, path: true, valueType: true, value: true, confidence: true } },
+          },
+        },
+      },
+    });
+    if (!document) throw new NotFoundException();
+
+    const { extractions, ...summary } = document;
+    const latest = extractions[0];
+    if (!latest) return { ...summary, extraction: null };
+
+    const fields = latest.fields.sort((a, b) => compareFieldPaths(a.path, b.path));
+    return {
+      ...summary,
+      extraction: {
+        ...latest,
+        fields,
+        // Recomputed rather than stored, so it always reflects the current
+        // policy (the audit log keeps the reasons as they were at the time).
+        reviewReasons: latest.status === 'SUCCEEDED' ? reviewReasons(fields) : [],
+      },
+    };
   }
 
   async getFile(

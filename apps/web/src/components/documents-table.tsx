@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { FileTextIcon, ImageIcon } from "lucide-react"
 
 import { StatusBadge, type DocumentStatus } from "@/components/status-badge"
@@ -29,15 +30,10 @@ export function DocumentsTable({ documents }: { documents: DocumentSummary[] }) 
           return (
             <TableRow key={doc.id}>
               <TableCell className="max-w-0 w-full">
-                <a
-                  href={`/api/documents/${doc.id}/file`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 hover:underline"
-                >
+                <Link href={`/documents/${doc.id}`} className="flex items-center gap-2 hover:underline">
                   <Icon className="size-4 shrink-0 text-muted-foreground" />
                   <span className="truncate font-medium">{doc.originalFilename}</span>
-                </a>
+                </Link>
               </TableCell>
               <TableCell className="hidden tabular text-muted-foreground sm:table-cell">
                 {formatBytes(doc.sizeBytes)}

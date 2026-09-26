@@ -2,13 +2,14 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { InboxIcon, UploadIcon } from "lucide-react"
 
+import { AutoRefresh } from "@/components/auto-refresh"
 import { DocumentsTable } from "@/components/documents-table"
 import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import { buttonVariants } from "@/components/ui/button"
 import { apiFetch } from "@/lib/api"
 import { requireUser } from "@/lib/dal"
-import type { DocumentSummary } from "@/lib/documents"
+import { IN_FLIGHT_STATUSES, type DocumentSummary } from "@/lib/documents"
 
 export const metadata: Metadata = { title: "Dashboard · Invoicio" }
 
@@ -22,8 +23,11 @@ export default async function DashboardPage() {
     </Link>
   )
 
+  const recent = documents.slice(0, 10)
+
   return (
     <>
+      <AutoRefresh active={recent.some((doc) => IN_FLIGHT_STATUSES.includes(doc.status))} />
       <PageHeader
         title={`Welcome, ${user.name.split(" ")[0]}`}
         description={user.business.name}
@@ -32,7 +36,7 @@ export default async function DashboardPage() {
       {documents.length > 0 ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-heading">Recent documents</h2>
-          <DocumentsTable documents={documents.slice(0, 10)} />
+          <DocumentsTable documents={recent} />
         </section>
       ) : (
         <EmptyState

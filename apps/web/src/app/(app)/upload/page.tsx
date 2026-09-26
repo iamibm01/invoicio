@@ -1,9 +1,10 @@
 import type { Metadata } from "next"
 
+import { AutoRefresh } from "@/components/auto-refresh"
 import { DocumentsTable } from "@/components/documents-table"
 import { PageHeader } from "@/components/page-header"
 import { apiFetch } from "@/lib/api"
-import type { DocumentSummary } from "@/lib/documents"
+import { IN_FLIGHT_STATUSES, type DocumentSummary } from "@/lib/documents"
 
 import { UploadDropzone } from "./upload-dropzone"
 
@@ -14,6 +15,7 @@ export default async function UploadPage() {
 
   return (
     <>
+      <AutoRefresh active={documents.some((doc) => IN_FLIGHT_STATUSES.includes(doc.status))} />
       <PageHeader
         title="Upload documents"
         description="Receipts and invoices are queued for extraction as soon as they upload."

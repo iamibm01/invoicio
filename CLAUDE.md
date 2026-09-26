@@ -41,7 +41,7 @@ Positioning: this is an AI document-processing pipeline demonstrated on invoices
 - shadcn/ui on **Base UI** primitives (style `base-nova`), not Radix — compose triggers with the `render` prop (`<DialogTrigger render={<Button />}>`), not `asChild`. Add components with `npx shadcn@latest add <name>`.
 - Tokens live in `src/app/globals.css`. Use the semantic type scale (`text-display` / `text-title` / `text-heading` / `text-body` / `text-caption`) rather than raw `text-sm` etc., `max-w-content` / `max-w-form` for widths, and `tabular` for amounts, dates and scores.
 - Status colors: `success` / `warning` / `info` / `destructive` (Badge and Alert have matching variants). Confidence colors map onto them via `lib/confidence.ts`, which also holds the review thresholds.
-- Shared app components: `ConfidenceBadge`, `StatusBadge`, `PageHeader`, `EmptyState` in `src/components/`. `/design-system` renders every token and component — check new UI there in both themes.
+- Shared app components: `ConfidenceBadge`, `StatusBadge`, `PageHeader`, `EmptyState`, `AutoRefresh` in `src/components/`. Pipeline status updates live via `AutoRefresh` (`router.refresh()` every 2s while a document is QUEUED/PROCESSING), which keeps the browser off the API; no websockets. `/design-system` renders every token and component — check new UI there in both themes.
 
 ## Architecture: The Agent Pipeline
 
