@@ -77,6 +77,7 @@ model Business {
   documents        Document[]
   extractions      Extraction[]
   extractionFields ExtractionField[]
+  pipelineSteps    PipelineStep[]
   corrections      Correction[]
   approvals        Approval[]
   auditLogs        AuditLog[]
@@ -175,9 +176,51 @@ model Extraction {
   business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   document Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
   fields   ExtractionField[]
+  steps    PipelineStep[]
 
   @@index([businessId])
   @@index([documentId, startedAt])
+}
+
+/// The steps of the agent pipeline, in the order they run.
+enum PipelineStepName {
+  CLASSIFICATION
+  EXTRACTION
+  VALIDATION
+  CATEGORIZATION
+}
+
+enum PipelineStepStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  /// Not run, e.g. extraction skipped because the classifier found no receipt
+  SKIPPED
+}
+
+/// One step of one pipeline run. Rows are written as steps start and finish,
+/// so a crash mid-run still shows which step was running, and per-step cost
+/// and failure rates can be queried directly.
+model PipelineStep {
+  id           String             @id @default(uuid(7)) @db.Uuid
+  businessId   String             @db.Uuid
+  extractionId String             @db.Uuid
+  name         PipelineStepName
+  status       PipelineStepStatus @default(RUNNING)
+  /// Model that answered; null for steps that are plain code
+  model        String?
+  inputTokens  Int?
+  outputTokens Int?
+  /// { kind, message, retryable } when FAILED, { reason } when SKIPPED
+  error        Json?
+  startedAt    DateTime           @default(now())
+  completedAt  DateTime?
+
+  business   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  extraction Extraction @relation(fields: [extractionId], references: [id], onDelete: Cascade)
+
+  @@unique([extractionId, name])
+  @@index([businessId, name, status])
 }
 
 /// A single extracted value with its confidence. Line items are flattened into

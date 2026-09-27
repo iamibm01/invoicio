@@ -133,6 +133,12 @@ describe('Extractions (e2e)', () => {
 
     const audit = await prisma.auditLog.findFirst({ where: { entityId: documentId, action: 'extraction.succeeded' } });
     expect(audit).toMatchObject({ actorId: null });
+
+    // The run went through the pipeline, which recorded the step.
+    const steps = await prisma.pipelineStep.findMany({ where: { extractionId: run.id } });
+    expect(steps).toMatchObject([
+      { name: 'EXTRACTION', status: 'SUCCEEDED', model: 'claude-opus-4-8', inputTokens: 1000, outputTokens: 200 },
+    ]);
   });
 
   it('sends low-confidence or incomplete extractions to REVIEW with reasons', async () => {

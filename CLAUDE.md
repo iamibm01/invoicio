@@ -54,6 +54,12 @@ This is the core of the project — do not collapse it into a single prompt call
 3. **Validation agent** — checks line-item math against the total, flags duplicate submissions, flags anomalies (e.g. unusually high amount for that vendor).
 4. **Categorization agent** — maps to expense categories using business rules plus (later, Phase 5) learned patterns from past user corrections.
 
+Implementation (`apps/api/src/extractions/pipeline/`):
+- `PipelineOrchestrator.run(context, steps)` runs steps in order. Each step implements `PipelineStep` (`name`, `key`, `required`, optional `skipReason(state)`, `run(context, state)`, optional `persist(tx, …)`). Steps never call each other: they read earlier outputs from `PipelineState` and the orchestrator adds each output under the step's key only after it's saved.
+- Every step writes a `PipelineStep` row (RUNNING → SUCCEEDED/FAILED/SKIPPED, with model, tokens, error, timing). `persist` runs in the same transaction that marks the step SUCCEEDED.
+- A required step failing (extraction) → run FAILED, stop. An optional step failing → run PARTIAL, later steps still run, the document goes to REVIEW with "<step> step failed", and `Extraction.errors` is keyed by step. PARTIAL runs are reviewable like SUCCEEDED ones.
+- `ExtractionsService` owns the document around the pipeline (claim, load file, final statuses); the step list lives there. Decided split: LLM steps where judgment is needed (classification, extraction, categorization), code where correctness is (validation math/duplicates/anomalies, currency conversion). All model steps on Opus 5 until the eval justifies cheaper models.
+
 Design requirements for the pipeline:
 - Every extracted field carries a **confidence score**, not just a value. This drives which fields get flagged for human review.
 - Malformed/invalid model output triggers retry logic, not a silent failure.

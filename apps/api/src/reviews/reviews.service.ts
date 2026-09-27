@@ -86,7 +86,10 @@ export class ReviewsService {
     if (!document) throw new NotFoundException();
 
     const run = document.extractions[0];
-    if (!REVIEWABLE.includes(document.status) || run?.status !== ExtractionStatus.SUCCEEDED) {
+    // A PARTIAL run has usable fields (only an optional step failed), so it
+    // can be reviewed like a successful one.
+    const finished = run?.status === ExtractionStatus.SUCCEEDED || run?.status === ExtractionStatus.PARTIAL;
+    if (!REVIEWABLE.includes(document.status) || !finished) {
       throw new ConflictException(
         `Document is ${document.status} and has no finished extraction to review`,
       );

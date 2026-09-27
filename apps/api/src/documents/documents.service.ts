@@ -4,8 +4,9 @@ import type { Readable } from 'node:stream';
 import type { AuthUser } from '../auth/auth.types.js';
 import { ExtractionQueue } from '../extractions/extraction-queue.js';
 import { compareFieldPaths } from '../extractions/extraction.schema.js';
-import { reviewReasons } from '../extractions/review-policy.js';
+import { reviewReasons, stepFailureReason } from '../extractions/review-policy.js';
 import { currentValue, latestCorrection } from '../reviews/latest-correction.js';
+import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { detectFileType } from './detect-file-type.js';
@@ -24,6 +25,21 @@ export interface UploadedFile {
   originalname: string;
   buffer: Buffer;
   size: number;
+}
+
+/**
+ * Why a run's output needs a person: low-confidence or missing fields, plus
+ * any optional step that failed in a PARTIAL run. A FAILED run has nothing
+ * to review.
+ */
+function runReviewReasons(
+  status: string,
+  fields: Parameters<typeof reviewReasons>[0],
+  errors: Prisma.JsonValue,
+): string[] {
+  if (status !== 'SUCCEEDED' && status !== 'PARTIAL') return [];
+  const failedSteps = status === 'PARTIAL' && errors && typeof errors === 'object' ? Object.keys(errors) : [];
+  return [...reviewReasons(fields), ...failedSteps.map(stepFailureReason)];
 }
 
 /** Every method is scoped to the caller's business. */
@@ -183,7 +199,7 @@ export class DocumentsService {
         // Why the model's output was flagged: judged on the model's values,
         // and recomputed so it reflects the current policy (the audit log
         // keeps the reasons as they were at the time).
-        reviewReasons: latest.status === 'SUCCEEDED' ? reviewReasons(modelFields) : [],
+        reviewReasons: runReviewReasons(latest.status, modelFields, latest.errors),
       },
     };
   }

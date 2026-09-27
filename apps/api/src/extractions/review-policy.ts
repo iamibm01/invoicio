@@ -32,3 +32,11 @@ export function reviewReasons(fields: PredictedField[]): string[] {
 
   return reasons;
 }
+
+/**
+ * Review reason for a pipeline step that failed in a PARTIAL run: the output
+ * is usable, but that step's checks are missing, so a person stands in for them.
+ */
+export function stepFailureReason(step: string): string {
+  return `${step} step failed`;
+}

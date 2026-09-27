@@ -4,30 +4,36 @@ import type { AllowedMimeType } from '../documents/upload-rules.js';
 import { DocumentStatus, ExtractionStatus, type Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
-import { toDocumentBlock } from './document-input.js';
+import { toDocumentBlock, type DocumentBlock } from './document-input.js';
 import { PROMPT_VERSION } from './extraction.prompt.js';
-import {
-  EXTRACTION_MODEL,
-  ExtractionFailedError,
-  ExtractorService,
-  type ExtractionFailureKind,
-} from './extractor.service.js';
-import { reviewReasons } from './review-policy.js';
+import { EXTRACTION_MODEL, ExtractionFailedError } from './extractor.service.js';
+import { ExtractionStep } from './pipeline/extraction.step.js';
+import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
+import type { FailureKind, PipelineResult, PipelineStep, StepKey } from './pipeline/pipeline.types.js';
+import { reviewReasons, stepFailureReason } from './review-policy.js';
 
 export type RunOutcome =
-  | { extractionId: string; status: 'SUCCEEDED'; documentStatus: 'REVIEW' | 'DONE'; reviewReasons: string[] }
-  | { extractionId: string; status: 'FAILED'; kind: ExtractionFailureKind | 'internal'; retryable: boolean };
+  | {
+      extractionId: string;
+      status: 'SUCCEEDED' | 'PARTIAL';
+      documentStatus: 'REVIEW' | 'DONE';
+      reviewReasons: string[];
+    }
+  | { extractionId: string; status: 'FAILED'; kind: FailureKind; retryable: boolean };
 
 /** Documents in these states can be (re)processed; anything else is in flight or finished. */
 const RUNNABLE: DocumentStatus[] = [DocumentStatus.QUEUED, DocumentStatus.FAILED];
 
 /**
- * Runs the extraction for one document and records the outcome, success or
- * failure, so every run leaves a trace.
+ * Runs the pipeline for one document and records the outcome, success or
+ * failure, so every run leaves a trace. The steps themselves, and what
+ * happens between them, belong to PipelineOrchestrator; this service owns the
+ * document around them: claiming it, loading the file, and turning the
+ * pipeline's result into run and document statuses.
  *
  * Lifecycle:
  *   Document  QUEUED ─claim─▶ PROCESSING ─▶ REVIEW | DONE | FAILED
- *   Extraction           RUNNING ─▶ SUCCEEDED | FAILED
+ *   Extraction           RUNNING ─▶ SUCCEEDED | PARTIAL | FAILED
  *
  * The Extraction row is created *before* the model call, so a run that
  * crashes halfway still shows up as RUNNING with a start time rather than
@@ -38,11 +44,17 @@ const RUNNABLE: DocumentStatus[] = [DocumentStatus.QUEUED, DocumentStatus.FAILED
 export class ExtractionsService {
   private readonly logger = new Logger(ExtractionsService.name);
 
+  /** The pipeline, in order. Classification, validation and categorization join as they're built. */
+  private readonly steps: PipelineStep[];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-    private readonly extractor: ExtractorService,
-  ) {}
+    private readonly orchestrator: PipelineOrchestrator,
+    extractionStep: ExtractionStep,
+  ) {
+    this.steps = [extractionStep];
+  }
 
   async run(businessId: string, documentId: string): Promise<RunOutcome> {
     const document = await this.claim(businessId, documentId);
@@ -52,51 +64,64 @@ export class ExtractionsService {
       select: { id: true },
     });
 
+    let block: DocumentBlock;
     try {
       const file = await buffer(await this.storage.getStream(document.storageKey));
-      const result = await this.extractor.extract(
-        await toDocumentBlock(file, document.mimeType as AllowedMimeType),
-      );
-
-      const reasons = reviewReasons(result.fields);
-      const documentStatus = reasons.length > 0 ? DocumentStatus.REVIEW : DocumentStatus.DONE;
-
-      // One transaction: the fields, the run's outcome and the document's
-      // status change together, so no reader ever sees a DONE document
-      // without its fields.
-      await this.prisma.$transaction([
-        this.prisma.extractionField.createMany({
-          data: result.fields.map((field) => ({ ...field, businessId, extractionId: extraction.id })),
-        }),
-        this.prisma.extraction.update({
-          where: { id: extraction.id },
-          data: {
-            status: ExtractionStatus.SUCCEEDED,
-            model: result.model,
-            attempts: result.attempts,
-            rawOutput: result.rawOutputs as Prisma.InputJsonValue,
-            completedAt: new Date(),
-          },
-        }),
-        this.prisma.document.update({ where: { id: documentId }, data: { status: documentStatus } }),
-        this.audit(businessId, documentId, 'extraction.succeeded', {
-          extractionId: extraction.id,
-          model: result.model,
-          attempts: result.attempts,
-          fieldCount: result.fields.length,
-          reviewReasons: reasons,
-        }),
-      ]);
-
-      return {
-        extractionId: extraction.id,
-        status: 'SUCCEEDED',
-        documentStatus,
-        reviewReasons: reasons,
-      };
+      block = await toDocumentBlock(file, document.mimeType as AllowedMimeType);
     } catch (error) {
-      return this.recordFailure(businessId, documentId, extraction.id, error);
+      // No usable input (file missing, image can't be decoded): nothing to run.
+      return this.recordFailure(businessId, documentId, extraction.id, 'extraction', error);
     }
+
+    const result = await this.orchestrator.run(
+      { businessId, documentId, extractionId: extraction.id, document: block },
+      this.steps,
+    );
+
+    if (result.status === 'FAILED') {
+      const failure = result.failures.find((f) => f.required)!;
+      return this.recordFailure(businessId, documentId, extraction.id, failure.key, failure.cause);
+    }
+    return this.recordSuccess(businessId, documentId, extraction.id, result);
+  }
+
+  /**
+   * SUCCEEDED or PARTIAL. The fields were already saved by the extraction
+   * step; this sets the final statuses. A document is DONE only when nothing
+   * needs a person: no low-confidence or missing fields, and no step that
+   * failed (its checks are missing, so a person has to stand in for them).
+   */
+  private async recordSuccess(
+    businessId: string,
+    documentId: string,
+    extractionId: string,
+    result: PipelineResult,
+  ): Promise<RunOutcome> {
+    const fields = result.state.extraction?.fields ?? [];
+    const reasons = [...reviewReasons(fields), ...result.failures.map((f) => stepFailureReason(f.key))];
+    const documentStatus = reasons.length > 0 ? DocumentStatus.REVIEW : DocumentStatus.DONE;
+    const status = result.status === 'PARTIAL' ? ExtractionStatus.PARTIAL : ExtractionStatus.SUCCEEDED;
+    const errors = Object.fromEntries(
+      result.failures.map((f) => [f.key, { kind: f.kind, message: f.message, retryable: f.retryable }]),
+    );
+
+    await this.prisma.$transaction([
+      this.prisma.extraction.update({
+        where: { id: extractionId },
+        data: { status, errors: result.failures.length > 0 ? errors : undefined, completedAt: new Date() },
+      }),
+      this.prisma.document.update({ where: { id: documentId }, data: { status: documentStatus } }),
+      this.audit(businessId, documentId, 'extraction.succeeded', {
+        extractionId,
+        status,
+        fieldCount: fields.length,
+        failedSteps: result.failures.map((f) => f.key),
+        skippedSteps: result.skipped.map((s) => s.step),
+        reviewReasons: reasons,
+      }),
+    ]);
+
+    return { extractionId, status: result.status === 'PARTIAL' ? 'PARTIAL' : 'SUCCEEDED', documentStatus, reviewReasons: reasons };
   }
 
   /**
@@ -124,6 +149,7 @@ export class ExtractionsService {
     businessId: string,
     documentId: string,
     extractionId: string,
+    step: StepKey,
     error: unknown,
   ): Promise<RunOutcome> {
     // Model/API failures are expected and typed. Anything else (storage
@@ -140,8 +166,8 @@ export class ExtractionsService {
         where: { id: extractionId },
         data: {
           status: ExtractionStatus.FAILED,
-          // `errors` is keyed by pipeline step; Phase 3 adds classify/validate/categorize.
-          errors: { extraction: { kind: failure.kind, message, retryable: failure.retryable } },
+          // Keyed by pipeline step, like PARTIAL runs' errors.
+          errors: { [step]: { kind: failure.kind, message, retryable: failure.retryable } },
           attempts: failure.attempts,
           rawOutput: failure.rawOutputs as Prisma.InputJsonValue,
           completedAt: new Date(),

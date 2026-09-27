@@ -6,6 +6,8 @@ import { ExtractionRecoveryService } from './extraction-recovery.service.js';
 import { ExtractionProcessor } from './extraction.processor.js';
 import { ExtractionsService } from './extractions.service.js';
 import { ExtractorService } from './extractor.service.js';
+import { ExtractionStep } from './pipeline/extraction.step.js';
+import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
 
 @Module({
   imports: [BullModule.registerQueue({ name: EXTRACTION_QUEUE })],
@@ -18,6 +20,8 @@ import { ExtractorService } from './extractor.service.js';
       useFactory: () => new Anthropic({ maxRetries: 3 }),
     },
     ExtractorService,
+    PipelineOrchestrator,
+    ExtractionStep,
     ExtractionsService,
     ExtractionQueue,
     ExtractionProcessor,
