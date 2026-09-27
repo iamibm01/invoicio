@@ -1,5 +1,5 @@
 import { FieldValueType } from '../generated/prisma/enums.js';
-import { scoreDocument, summarize, type LabeledField, type PredictedField } from './score.js';
+import { calibration, scoreDocument, summarize, thresholdSweep, type LabeledField, type PredictedField } from './score.js';
 
 const { TEXT, MONEY, DATE, CURRENCY_CODE } = FieldValueType;
 
@@ -78,5 +78,71 @@ describe('summarize', () => {
 
   it('accepts candidate thresholds', () => {
     expect(summarize([score], { high: 0.95, medium: 0.7 }).silentErrors).toBe(0);
+  });
+});
+
+describe('draft labels', () => {
+  const withDraft: LabeledField[] = [
+    { path: 'total', valueType: MONEY, value: '42.50', source: 'official' },
+    { path: 'tax', valueType: MONEY, value: '9.99', source: 'draft' },
+  ];
+  const score = scoreDocument('careem.jpg', withDraft, [predicted('total', '42.50', 0.95), predicted('tax', '2.50', 0.95)]);
+
+  it('are left out of scores by default', () => {
+    expect(summarize([score]).fields).toMatchObject({ total: 1, correct: 1 });
+  });
+
+  it('can be included explicitly', () => {
+    expect(summarize([score], undefined, { includeDrafts: true }).fields).toMatchObject({ total: 2, correct: 1 });
+  });
+
+  it('still count as labelled, so they are not reported as unexpected', () => {
+    expect(score.unexpected).toEqual([]);
+  });
+});
+
+describe('calibration', () => {
+  it('compares claimed confidence with actual accuracy per band', () => {
+    const score = scoreDocument('careem.jpg', labels, [
+      predicted('vendorName', 'Careem', 0.97),
+      predicted('date', '2026-08-14', 0.96),
+      predicted('currency', 'USD', 0.96), // wrong but confident
+      predicted('total', '42.50', 0.6),
+    ]);
+    const buckets = calibration([score], [0, 0.9, 1]);
+    expect(buckets[0]).toMatchObject({ from: 0, to: 0.9, correct: 1 });
+    expect(buckets[1]).toMatchObject({ from: 0.9, to: 1, total: 3, correct: 2 });
+    expect(buckets[1].meanConfidence).toBeCloseTo(0.9633, 3);
+    expect(buckets[1].accuracy).toBeCloseTo(2 / 3);
+  });
+});
+
+describe('thresholdSweep', () => {
+  // Two documents: one with a confident mistake, one clean but with a medium field.
+  const risky = scoreDocument('a.jpg', labels, [
+    predicted('vendorName', 'Careem', 0.97),
+    predicted('date', '2026-08-14', 0.97),
+    predicted('total', '99.00', 0.92), // wrong
+  ]);
+  const clean = scoreDocument('b.jpg', labels, [
+    predicted('vendorName', 'Careem', 0.97),
+    predicted('date', '2026-08-14', 0.85),
+    predicted('total', '42.50', 0.97),
+  ]);
+  const sweep = thresholdSweep([risky, clean], [0.8, 0.9, 0.95]);
+
+  it('trades silent errors against review workload', () => {
+    // The wrong total (0.92) slips through below 0.95 and is caught at 0.95,
+    // at the cost of sending both documents to review.
+    expect(sweep.map(({ threshold, silentErrors, reviewRate }) => [threshold, silentErrors, reviewRate])).toEqual([
+      [0.8, 1, 0],
+      [0.9, 1, 0.5],
+      [0.95, 0, 1],
+    ]);
+  });
+
+  it('sends a document with a missing required field to review at any threshold', () => {
+    const missing = scoreDocument('c.jpg', labels, [predicted('vendorName', 'Careem', 0.99)]);
+    expect(thresholdSweep([missing], [0.5])[0].reviewRate).toBe(1);
   });
 });

@@ -21,3 +21,6 @@ apps/api/src/generated/
 /apps/api/evals/datasets/own/
 # SROIE is licensed for research use; keep the images and derived labels local
 /apps/api/evals/datasets/sroie/
+
+# Eval run outputs (contain dataset values)
+/apps/api/evals/results/

@@ -12,7 +12,7 @@ export const CONFIDENCE_THRESHOLDS = { high: 0.9, medium: 0.7 } as const;
  * document goes to review even when the model is confident it's absent: a
  * receipt with no total is either misread or not really a receipt.
  */
-const REQUIRED_PATHS = ['vendorName', 'date', 'total'] as const;
+export const REQUIRED_PATHS = ['vendorName', 'date', 'total'] as const;
 
 /**
  * Decides whether a person needs to look at this extraction before it counts

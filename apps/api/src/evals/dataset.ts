@@ -15,7 +15,7 @@ const VALUE_TYPES = new Set<string>(Object.values(FieldValueType));
 
 function parseField(raw: unknown, where: string): LabeledField {
   if (typeof raw !== 'object' || raw === null) throw new Error(`${where}: expected an object`);
-  const { path: fieldPath, valueType, value } = raw as Record<string, unknown>;
+  const { path: fieldPath, valueType, value, source } = raw as Record<string, unknown>;
   if (typeof fieldPath !== 'string' || fieldPath === '') throw new Error(`${where}: missing "path"`);
   if (typeof valueType !== 'string' || !VALUE_TYPES.has(valueType)) {
     throw new Error(`${where}: "valueType" must be one of ${[...VALUE_TYPES].join(', ')}`);
@@ -23,7 +23,10 @@ function parseField(raw: unknown, where: string): LabeledField {
   if (value !== null && typeof value !== 'string') {
     throw new Error(`${where}: "value" must be a string or null`);
   }
-  return { path: fieldPath, valueType: valueType as FieldValueType, value };
+  if (source !== undefined && source !== 'official' && source !== 'draft') {
+    throw new Error(`${where}: "source" must be "official", "draft" or absent (hand-checked)`);
+  }
+  return { path: fieldPath, valueType: valueType as FieldValueType, value, ...(source ? { source } : {}) };
 }
 
 /**

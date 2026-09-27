@@ -8,6 +8,22 @@ import { extractionOutputSchema, flattenExtraction, type ExtractionOutput } from
 
 export const EXTRACTION_MODEL = 'claude-opus-5';
 
+/**
+ * Models the extractor can run on. Both support adaptive thinking, effort and
+ * structured outputs with the same request shape. Haiku 4.5 is left out on
+ * purpose: it rejects `effort` and needs a thinking token budget instead, so
+ * it would need its own request variant.
+ */
+export const SUPPORTED_MODELS = ['claude-opus-5', 'claude-sonnet-5'] as const;
+export type ExtractionModel = (typeof SUPPORTED_MODELS)[number];
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/** Overrides for evals and cost comparisons. Production uses the defaults. */
+export interface ExtractOptions {
+  model?: ExtractionModel;
+  effort?: Effort;
+}
+
 /** Model calls per document, counting the first. Only malformed output is retried here. */
 export const MAX_ATTEMPTS = 3;
 
@@ -76,14 +92,14 @@ export class ExtractorService {
 
   constructor(private readonly client: Anthropic) {}
 
-  async extract(document: DocumentBlock): Promise<ExtractionResult> {
+  async extract(document: DocumentBlock, options: ExtractOptions = {}): Promise<ExtractionResult> {
     const initial: Anthropic.Beta.BetaMessageParam[] = buildExtractionMessages(document);
     let messages = initial;
     const rawOutputs: unknown[] = [];
     const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const response = await this.call(messages, attempt, rawOutputs);
+      const response = await this.call(messages, attempt, rawOutputs, options);
       rawOutputs.push(response.content);
       // Output tokens include thinking, which is billed even when it isn't displayed.
       usage.inputTokens += response.usage.input_tokens;
@@ -126,21 +142,28 @@ export class ExtractorService {
     );
   }
 
-  private async call(messages: Anthropic.Beta.BetaMessageParam[], attempt: number, rawOutputs: unknown[]) {
+  private async call(
+    messages: Anthropic.Beta.BetaMessageParam[],
+    attempt: number,
+    rawOutputs: unknown[],
+    { model = EXTRACTION_MODEL, effort = 'high' }: ExtractOptions,
+  ) {
     try {
       return await this.client.beta.messages.create({
-        model: EXTRACTION_MODEL,
+        model,
         max_tokens: 16000,
         system: EXTRACTION_SYSTEM_PROMPT,
         messages,
-        // Thinking is adaptive by default on Opus 5. Effort is the main cost
-        // lever; lower it only once the eval shows accuracy holds.
-        output_config: { effort: 'high', format: OUTPUT_FORMAT },
+        // Thinking is adaptive by default. Effort is the main cost lever;
+        // lower it only once the eval shows accuracy holds.
+        output_config: { effort, format: OUTPUT_FORMAT },
         // If Opus 5's safety classifier wrongly declines a receipt, the API
         // re-runs the request on a recommended fallback model instead of
-        // returning a refusal.
-        fallbacks: 'default',
-        betas: ['server-side-fallback-2026-07-01'],
+        // returning a refusal. Only enabled where documented (Opus 5).
+        ...(model === 'claude-opus-5' && {
+          fallbacks: 'default' as const,
+          betas: ['server-side-fallback-2026-07-01'],
+        }),
       });
     } catch (error) {
       if (!(error instanceof Anthropic.APIError)) throw error;

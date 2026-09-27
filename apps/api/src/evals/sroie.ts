@@ -63,13 +63,13 @@ export function parseSroieAmount(raw: string): string | null {
 export function sroieToLabels(entities: SroieEntities): LabeledField[] {
   const fields: LabeledField[] = [];
   const company = entities.company?.trim();
-  if (company) fields.push({ path: 'vendorName', valueType: FieldValueType.TEXT, value: company });
+  if (company) fields.push({ path: 'vendorName', valueType: FieldValueType.TEXT, value: company, source: 'official' });
 
   const date = entities.date ? parseSroieDate(entities.date) : null;
-  if (date) fields.push({ path: 'date', valueType: FieldValueType.DATE, value: date });
+  if (date) fields.push({ path: 'date', valueType: FieldValueType.DATE, value: date, source: 'official' });
 
   const total = entities.total ? parseSroieAmount(entities.total) : null;
-  if (total) fields.push({ path: 'total', valueType: FieldValueType.MONEY, value: total });
+  if (total) fields.push({ path: 'total', valueType: FieldValueType.MONEY, value: total, source: 'official' });
 
   return fields;
 }

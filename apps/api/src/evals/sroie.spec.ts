@@ -55,9 +55,9 @@ describe('sroieToLabels', () => {
         total: '9.00',
       }),
     ).toEqual([
-      { path: 'vendorName', valueType: 'TEXT', value: 'BOOK TA .K (TAMAN DAYA) SDN BHD' },
-      { path: 'date', valueType: 'DATE', value: '2018-12-25' },
-      { path: 'total', valueType: 'MONEY', value: '9.00' },
+      { path: 'vendorName', valueType: 'TEXT', value: 'BOOK TA .K (TAMAN DAYA) SDN BHD', source: 'official' },
+      { path: 'date', valueType: 'DATE', value: '2018-12-25', source: 'official' },
+      { path: 'total', valueType: 'MONEY', value: '9.00', source: 'official' },
     ]);
   });
 

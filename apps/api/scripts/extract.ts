@@ -20,11 +20,9 @@ import { toDocumentBlock } from '../src/extractions/document-input.js';
 import { ExtractionFailedError, ExtractorService, type TokenUsage } from '../src/extractions/extractor.service.js';
 import { CONFIDENCE_THRESHOLDS, reviewReasons } from '../src/extractions/review-policy.js';
 import { mergeLabels, readLabelsFile, writeLabelsFile } from '../src/evals/labels-file.js';
+import { estimateCost } from '../src/evals/pricing.js';
 import type { LabeledField, PredictedField } from '../src/evals/score.js';
 
-// Claude Opus 5 list prices, USD per million tokens. A fallback model may
-// bill differently, so treat the figure as an estimate.
-const PRICE_PER_MTOK = { input: 5, output: 25 };
 
 function level(confidence: number): string {
   if (confidence >= CONFIDENCE_THRESHOLDS.high) return 'high';
@@ -40,10 +38,9 @@ function printFields(fields: PredictedField[]) {
   }
 }
 
-function cost(usage: TokenUsage): string {
-  const usd =
-    (usage.inputTokens * PRICE_PER_MTOK.input + usage.outputTokens * PRICE_PER_MTOK.output) / 1_000_000;
-  return `${usage.inputTokens} in / ${usage.outputTokens} out ≈ $${usd.toFixed(4)}`;
+function cost(model: string, usage: TokenUsage): string {
+  const usd = estimateCost(model, usage);
+  return `${usage.inputTokens} in / ${usage.outputTokens} out ≈ ${usd === null ? 'unknown price' : `$${usd.toFixed(4)}`}`;
 }
 
 /** Returns the extracted fields, or null if the file was skipped or failed. */
@@ -71,7 +68,7 @@ async function extractFile(
     const result = await extractor.extract(await toDocumentBlock(data, mimeType));
     const seconds = ((performance.now() - started) / 1000).toFixed(1);
 
-    console.log(`  ${mimeType} · ${result.model} · ${result.attempts} attempt(s) · ${seconds}s · ${cost(result.usage)}\n`);
+    console.log(`  ${mimeType} · ${result.model} · ${result.attempts} attempt(s) · ${seconds}s · ${cost(result.model, result.usage)}\n`);
     printFields(result.fields);
 
     const reasons = reviewReasons(result.fields);
@@ -94,6 +91,8 @@ const toLabel = ({ path: fieldPath, valueType, value }: PredictedField): Labeled
   path: fieldPath,
   valueType,
   value,
+  // Excluded from eval scores until someone checks it and removes this marker.
+  source: 'draft',
 });
 
 async function main() {

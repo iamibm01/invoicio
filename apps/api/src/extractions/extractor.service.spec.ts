@@ -62,6 +62,16 @@ describe('ExtractorService', () => {
     expect(create.mock.calls[0][0]).toMatchObject({ fallbacks: 'default', model: 'claude-opus-5' });
   });
 
+  it('applies model and effort overrides, sending fallbacks only for Opus 5', async () => {
+    const { extractor, create } = setup(response(json(valid), 'end_turn', 'claude-sonnet-5'));
+    await extractor.extract(document, { model: 'claude-sonnet-5', effort: 'low' });
+
+    const request = create.mock.calls[0][0];
+    expect(request).toMatchObject({ model: 'claude-sonnet-5', output_config: { effort: 'low' } });
+    expect(request).not.toHaveProperty('fallbacks');
+    expect(request).not.toHaveProperty('betas');
+  });
+
   it('records the model that actually answered, e.g. after a fallback', async () => {
     const { extractor } = setup(response(json(valid), 'end_turn', 'claude-opus-4-8'));
     expect((await extractor.extract(document)).model).toBe('claude-opus-4-8');

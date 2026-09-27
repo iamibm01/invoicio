@@ -20,6 +20,18 @@ evals/datasets/
 - **SROIE:** `npm run import-sroie -- <SROIE entities dir> <dataset dir>` writes the official company/date/total answers for every image in the dataset dir. These are independent ground truth and replace existing values for those fields.
 - **Drafts:** `npm run extract -- <files> --labels <dataset dir>/labels.json` adds the model's output for fields that have no label yet. It never overwrites existing labels. Check every drafted field by hand against the image: an unchecked draft scores the model against itself. Confidence is left out of drafts on purpose, so confident mistakes don't get skipped.
 
+### Where labels came from: `source`
+
+Each field can carry a `source`:
+
+- absent: labelled or checked by hand; always scored.
+- `"official"`: the dataset's own ground truth (set by `import-sroie`); always scored.
+- `"draft"`: the model's output, not yet checked (set by `extract --labels`). **Not scored** by default, since scoring the model against its own answers would count its mistakes as correct. After checking a draft field against the image, fix the value if needed and delete its `"source": "draft"`.
+
+## Running the eval
+
+`npm run eval -- evals/datasets/sroie [more dirs] [--model claude-sonnet-5] [--effort low] [--limit 20]` runs the real extractor on every labelled document (real API calls, ~$0.036/document on Opus 5 at high effort) and prints accuracy per field, calibration, the review-threshold trade-off and every silent error. Full results are saved to `evals/results/` (gitignored) for comparing runs.
+
 ## `labels.json`
 
 An array of documents. Fields use the same flattened shape as `ExtractionField`,
