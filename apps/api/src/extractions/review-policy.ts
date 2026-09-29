@@ -47,6 +47,8 @@ export interface RunForReview {
   classification: { documentType: string; confidence: number } | null;
   /** Steps that didn't succeed; `key` is the step's lower-case name, e.g. "validation". */
   steps: { key: string; status: 'FAILED' | 'SKIPPED'; reason?: string }[];
+  /** Validation findings; only warnings need a person. */
+  issues: { severity: 'WARNING' | 'INFO'; message: string }[];
 }
 
 /**
@@ -63,6 +65,9 @@ export function runReviewReasons(run: RunForReview): string[] {
   if (extractionSkipped) reasons.push(extractionSkipped.reason ?? 'extraction skipped');
   else reasons.push(...reviewReasons(run.fields));
 
+  for (const issue of run.issues) {
+    if (issue.severity === 'WARNING') reasons.push(issue.message);
+  }
   if (run.classification && run.classification.confidence < CONFIDENCE_THRESHOLDS.high) {
     reasons.push(`document type uncertain (${run.classification.documentType.toLowerCase()})`);
   }

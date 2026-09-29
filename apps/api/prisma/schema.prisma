@@ -56,6 +56,49 @@ enum FieldValueType {
   CURRENCY_CODE
 }
 
+enum ValidationIssueCode {
+  /// Line item amounts don't add up to the subtotal
+  LINE_ITEMS_SUBTOTAL_MISMATCH
+  /// Subtotal (or line items) plus tax doesn't match the total
+  TOTAL_MISMATCH
+  /// Total differs from subtotal + tax by a small rounding amount
+  ROUNDING_ADJUSTMENT
+  /// Another document has the same vendor, date and total
+  POSSIBLE_DUPLICATE
+  /// Total is far above this vendor's usual amount
+  UNUSUAL_AMOUNT
+}
+
+enum ValidationSeverity {
+  /// Needs a person: sends the document to review
+  WARNING
+  /// Worth knowing, not a problem (e.g. a rounding adjustment)
+  INFO
+}
+
+/// A finding from the validation step. Stored per run, so issues can be
+/// counted and compared across runs (e.g. how often totals don't add up).
+model ValidationIssue {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  businessId        String              @db.Uuid
+  extractionId      String              @db.Uuid
+  code              ValidationIssueCode
+  severity          ValidationSeverity
+  message           String
+  /// The numbers behind the finding, e.g. { expected, actual }
+  details           Json?
+  /// For POSSIBLE_DUPLICATE: the document this one may duplicate
+  relatedDocumentId String?             @db.Uuid
+  createdAt         DateTime            @default(now())
+
+  business        Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  extraction      Extraction @relation(fields: [extractionId], references: [id], onDelete: Cascade)
+  relatedDocument Document?  @relation("ValidationIssueRelatedDocument", fields: [relatedDocumentId], references: [id], onDelete: SetNull)
+
+  @@index([extractionId])
+  @@index([businessId, code])
+}
+
 /// Coarse kind of business that issued a document, set by the classifier.
 /// A fixed list on purpose: it's a hint for downstream steps, not the
 /// business's own expense categories (those are per-business and editable).
@@ -94,6 +137,7 @@ model Business {
   extractions      Extraction[]
   extractionFields ExtractionField[]
   pipelineSteps    PipelineStep[]
+  validationIssues ValidationIssue[]
   corrections      Correction[]
   approvals        Approval[]
   auditLogs        AuditLog[]
@@ -154,11 +198,13 @@ model Document {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  uploadedBy  User         @relation(fields: [uploadedById], references: [id], onDelete: NoAction)
-  vendor      Vendor?      @relation(fields: [vendorId], references: [id], onDelete: SetNull)
-  extractions Extraction[]
-  approval    Approval?
+  business                Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  uploadedBy              User              @relation(fields: [uploadedById], references: [id], onDelete: NoAction)
+  vendor                  Vendor?           @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  extractions             Extraction[]
+  /// Validation issues on other documents that point at this one (e.g. possible duplicates)
+  relatedValidationIssues ValidationIssue[] @relation("ValidationIssueRelatedDocument")
+  approval                Approval?
 
   @@index([businessId, status])
   @@index([businessId, createdAt])
@@ -195,10 +241,11 @@ model Extraction {
   startedAt              DateTime         @default(now())
   completedAt            DateTime?
 
-  business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  document Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  fields   ExtractionField[]
-  steps    PipelineStep[]
+  business         Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  document         Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fields           ExtractionField[]
+  steps            PipelineStep[]
+  validationIssues ValidationIssue[]
 
   @@index([businessId])
   @@index([documentId, startedAt])

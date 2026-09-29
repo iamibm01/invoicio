@@ -10,6 +10,8 @@ import { StructuredOutputService } from './model/structured-output.service.js';
 import { ClassifierService } from './classification.js';
 import { ClassificationStep } from './pipeline/classification.step.js';
 import { ExtractionStep } from './pipeline/extraction.step.js';
+import { ValidationStep } from './pipeline/validation.step.js';
+import { ValidationService } from './validation/validation.service.js';
 import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
 
 @Module({
@@ -28,6 +30,8 @@ import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
     PipelineOrchestrator,
     ClassificationStep,
     ExtractionStep,
+    ValidationService,
+    ValidationStep,
     ExtractionsService,
     ExtractionQueue,
     ExtractionProcessor,

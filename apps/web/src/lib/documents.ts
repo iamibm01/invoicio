@@ -48,6 +48,13 @@ export interface Classification {
   reason: string | null
 }
 
+export interface ValidationIssue {
+  code: "LINE_ITEMS_SUBTOTAL_MISMATCH" | "TOTAL_MISMATCH" | "ROUNDING_ADJUSTMENT" | "POSSIBLE_DUPLICATE" | "UNUSUAL_AMOUNT"
+  severity: "WARNING" | "INFO"
+  message: string
+  relatedDocumentId?: string | null
+}
+
 export interface PipelineStepSummary {
   name: "CLASSIFICATION" | "EXTRACTION" | "VALIDATION" | "CATEGORIZATION"
   status: "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED"
@@ -65,6 +72,12 @@ export interface ExtractionRun {
   /** Null if classification hasn't run or failed */
   classification: Classification | null
   steps: PipelineStepSummary[]
+  validation: {
+    /** False if the validation step failed or was skipped */
+    ran: boolean
+    /** Arithmetic issues reflect the current (corrected) values; duplicate/history issues are from the run */
+    issues: ValidationIssue[]
+  }
   /** Keyed by pipeline step, e.g. { extraction: { kind, message } } */
   errors: Record<string, { kind: FailureKind; message: string; retryable: boolean }> | null
   startedAt: string

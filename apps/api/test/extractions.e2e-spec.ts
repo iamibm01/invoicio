@@ -28,8 +28,12 @@ describe('Extractions (e2e)', () => {
   const extract = vi.fn<ExtractorService['extract']>();
 
   const s = (value: string | null, confidence = 0.95) => ({ value, confidence });
+  // Each call gets its own vendor, so documents in these tests aren't
+  // (correctly) flagged as duplicates of each other. The duplicate check has
+  // its own tests in validation.e2e-spec.ts.
+  let vendors = 0;
   const output = (overrides: Partial<ExtractionOutput> = {}): ExtractionOutput => ({
-    vendorName: s('Careem'),
+    vendorName: s(`Careem ${++vendors}`),
     documentNumber: s(null),
     date: s('2026-08-14'),
     currency: s('AED'),
@@ -144,6 +148,7 @@ describe('Extractions (e2e)', () => {
     expect(steps).toMatchObject([
       { name: 'CLASSIFICATION', status: 'SUCCEEDED', promptVersion: 'classify-v1', inputTokens: 700 },
       { name: 'EXTRACTION', status: 'SUCCEEDED', model: 'claude-opus-4-8', promptVersion: 'extract-v1', inputTokens: 1000 },
+      { name: 'VALIDATION', status: 'SUCCEEDED', model: null },
     ]);
     expect(run).toMatchObject({ documentType: 'RECEIPT', documentTypeConfidence: 0.97, vendorCategory: 'TRANSPORT' });
   });
@@ -240,6 +245,7 @@ describe('Extractions (e2e)', () => {
       expect(body.extraction.steps.map((st: { name: string; status: string }) => [st.name, st.status])).toEqual([
         ['CLASSIFICATION', 'SUCCEEDED'],
         ['EXTRACTION', 'SKIPPED'],
+        ['VALIDATION', 'SKIPPED'],
       ]);
       expect(body.extraction.reviewReasons).toEqual(outcome.status !== 'FAILED' ? outcome.reviewReasons : []);
     });

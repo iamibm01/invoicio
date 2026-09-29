@@ -10,6 +10,7 @@ import { EXTRACTION_MODEL } from './extractor.service.js';
 import { ModelCallError } from './model/structured-output.service.js';
 import { ClassificationStep } from './pipeline/classification.step.js';
 import { ExtractionStep } from './pipeline/extraction.step.js';
+import { ValidationStep } from './pipeline/validation.step.js';
 import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
 import type { FailureKind, PipelineResult, PipelineStep, StepKey } from './pipeline/pipeline.types.js';
 import { runReviewReasons } from './review-policy.js';
@@ -46,7 +47,7 @@ const RUNNABLE: DocumentStatus[] = [DocumentStatus.QUEUED, DocumentStatus.FAILED
 export class ExtractionsService {
   private readonly logger = new Logger(ExtractionsService.name);
 
-  /** The pipeline, in order. Validation and categorization join as they're built. */
+  /** The pipeline, in order. Categorization joins when it's built. */
   private readonly steps: PipelineStep[];
 
   constructor(
@@ -55,8 +56,9 @@ export class ExtractionsService {
     private readonly orchestrator: PipelineOrchestrator,
     classificationStep: ClassificationStep,
     extractionStep: ExtractionStep,
+    validationStep: ValidationStep,
   ) {
-    this.steps = [classificationStep, extractionStep];
+    this.steps = [classificationStep, extractionStep, validationStep];
   }
 
   async run(businessId: string, documentId: string): Promise<RunOutcome> {
@@ -105,6 +107,7 @@ export class ExtractionsService {
     const reasons = runReviewReasons({
       fields,
       classification,
+      issues: result.state.validation?.issues ?? [],
       steps: [
         ...result.skipped.map((s) => ({ key: s.key, status: 'SKIPPED' as const, reason: s.reason })),
         ...result.failures.map((f) => ({ key: f.key, status: 'FAILED' as const })),

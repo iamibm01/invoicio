@@ -5,6 +5,7 @@ import type { AuthUser } from '../auth/auth.types.js';
 import { ExtractionQueue } from '../extractions/extraction-queue.js';
 import { compareFieldPaths } from '../extractions/extraction.schema.js';
 import { runReviewReasons } from '../extractions/review-policy.js';
+import { checkArithmetic } from '../extractions/validation/arithmetic.js';
 import { currentValue, latestCorrection } from '../reviews/latest-correction.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -26,6 +27,9 @@ export interface UploadedFile {
   buffer: Buffer;
   size: number;
 }
+
+/** Issue codes that come from the document's own numbers, and can be recomputed. */
+const ARITHMETIC_CODES = new Set<string>(['LINE_ITEMS_SUBTOTAL_MISMATCH', 'TOTAL_MISMATCH', 'ROUNDING_ADJUSTMENT']);
 
 /** The `reason` a SKIPPED step stored in its error column, if any. */
 function skipReason(error: Prisma.JsonValue): string | undefined {
@@ -152,6 +156,10 @@ export class DocumentsService {
             documentTypeConfidence: true,
             vendorCategory: true,
             classificationReason: true,
+            validationIssues: {
+              orderBy: { createdAt: 'asc' },
+              select: { code: true, severity: true, message: true, relatedDocumentId: true },
+            },
             steps: {
               orderBy: { startedAt: 'asc' },
               select: { name: true, status: true, model: true, error: true, startedAt: true, completedAt: true },
@@ -175,7 +183,15 @@ export class DocumentsService {
     const { extractions, ...summary } = document;
     const latest = extractions[0];
     if (!latest) return { ...summary, extraction: null };
-    const { documentType, documentTypeConfidence, vendorCategory, classificationReason, steps, ...run } = latest;
+    const {
+      documentType,
+      documentTypeConfidence,
+      vendorCategory,
+      classificationReason,
+      steps,
+      validationIssues,
+      ...run
+    } = latest;
     const classification =
       documentType && documentTypeConfidence !== null
         ? { documentType, confidence: documentTypeConfidence, vendorCategory, reason: classificationReason }
@@ -197,6 +213,7 @@ export class DocumentsService {
     });
 
     const finished = run.status === 'SUCCEEDED' || run.status === 'PARTIAL';
+    const validationRan = steps.some((s) => s.name === 'VALIDATION' && s.status === 'SUCCEEDED');
     return {
       ...summary,
       extraction: {
@@ -208,6 +225,18 @@ export class DocumentsService {
           detail: error,
         })),
         fields,
+        validation: {
+          ran: validationRan,
+          // Arithmetic is re-checked against the current values (corrections
+          // included), so fixing a field clears its warning straight away.
+          // Duplicate and history findings come from the run itself.
+          issues: validationRan
+            ? [
+                ...checkArithmetic(fields),
+                ...validationIssues.filter((i) => !ARITHMETIC_CODES.has(i.code)),
+              ]
+            : [],
+        },
         // Why the model's output was flagged: judged on the model's values,
         // and recomputed so it reflects the current policy (the audit log
         // keeps the reasons as they were at the time).
@@ -215,6 +244,7 @@ export class DocumentsService {
           ? runReviewReasons({
               fields: modelFields,
               classification,
+              issues: validationIssues,
               steps: steps.flatMap((step) =>
                 step.status === 'FAILED' || step.status === 'SKIPPED'
                   ? [{ key: step.name.toLowerCase(), status: step.status, reason: skipReason(step.error) }]

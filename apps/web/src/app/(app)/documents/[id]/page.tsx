@@ -21,6 +21,7 @@ import {
 
 import { DocumentPreview } from "./document-preview"
 import { ReviewForm } from "./review-form"
+import { ValidationChecks } from "./validation-checks"
 
 export const metadata: Metadata = { title: "Document · Invoicio" }
 
@@ -120,6 +121,12 @@ export default async function DocumentPage({ params }: PageProps<"/documents/[id
               </ul>
             </AlertDescription>
           </Alert>
+        )}
+        {run.fields.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-heading">Checks</h3>
+            <ValidationChecks validation={run.validation} />
+          </section>
         )}
         {/* Keyed on what a save changes, so the form remounts with fresh values after one. */}
         <ReviewForm

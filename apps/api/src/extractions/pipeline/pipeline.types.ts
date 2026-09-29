@@ -2,6 +2,7 @@ import type { PipelineStepName, Prisma } from '../../generated/prisma/client.js'
 import type { DocumentBlock } from '../document-input.js';
 import type { ClassificationResult } from '../classification.js';
 import type { ExtractionResult } from '../extractor.service.js';
+import type { ValidationResult } from '../validation/validation.service.js';
 import type { ModelFailureKind, TokenUsage } from '../model/structured-output.service.js';
 
 /** Fixed facts about the run, available to every step. */
@@ -17,11 +18,12 @@ export interface PipelineContext {
  * reads what earlier steps left here and adds its own output under its own
  * key. Steps never call each other; the orchestrator is the only thing that
  * moves data between them, so each step can be tested and replaced alone.
- * Validation and categorization get their keys as they're built.
+ * Categorization gets its key when it's built.
  */
 export interface PipelineState {
   classification?: ClassificationResult;
   extraction?: ExtractionResult;
+  validation?: ValidationResult;
 }
 
 export type StepKey = keyof PipelineState;
