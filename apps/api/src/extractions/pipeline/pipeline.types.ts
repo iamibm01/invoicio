@@ -1,6 +1,8 @@
 import type { PipelineStepName, Prisma } from '../../generated/prisma/client.js';
 import type { DocumentBlock } from '../document-input.js';
-import type { ExtractionFailureKind, ExtractionResult, TokenUsage } from '../extractor.service.js';
+import type { ClassificationResult } from '../classification.js';
+import type { ExtractionResult } from '../extractor.service.js';
+import type { ModelFailureKind, TokenUsage } from '../model/structured-output.service.js';
 
 /** Fixed facts about the run, available to every step. */
 export interface PipelineContext {
@@ -15,9 +17,10 @@ export interface PipelineContext {
  * reads what earlier steps left here and adds its own output under its own
  * key. Steps never call each other; the orchestrator is the only thing that
  * moves data between them, so each step can be tested and replaced alone.
- * Classification, validation and categorization get their keys as they're built.
+ * Validation and categorization get their keys as they're built.
  */
 export interface PipelineState {
+  classification?: ClassificationResult;
   extraction?: ExtractionResult;
 }
 
@@ -27,6 +30,7 @@ export interface StepOutput<T> {
   value: T;
   /** Set by model-backed steps; code-only steps leave these out. */
   model?: string;
+  promptVersion?: string;
   usage?: TokenUsage;
 }
 
@@ -58,7 +62,7 @@ export interface PipelineStep<K extends StepKey = StepKey> {
   ): Promise<void>;
 }
 
-export type FailureKind = ExtractionFailureKind | 'internal';
+export type FailureKind = ModelFailureKind | 'internal';
 
 export interface StepFailure {
   step: PipelineStepName;
@@ -80,5 +84,5 @@ export interface PipelineResult {
   status: 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
   state: PipelineState;
   failures: StepFailure[];
-  skipped: { step: PipelineStepName; reason: string }[];
+  skipped: { step: PipelineStepName; key: StepKey; reason: string }[];
 }

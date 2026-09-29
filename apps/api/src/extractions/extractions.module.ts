@@ -6,6 +6,9 @@ import { ExtractionRecoveryService } from './extraction-recovery.service.js';
 import { ExtractionProcessor } from './extraction.processor.js';
 import { ExtractionsService } from './extractions.service.js';
 import { ExtractorService } from './extractor.service.js';
+import { StructuredOutputService } from './model/structured-output.service.js';
+import { ClassifierService } from './classification.js';
+import { ClassificationStep } from './pipeline/classification.step.js';
 import { ExtractionStep } from './pipeline/extraction.step.js';
 import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
 
@@ -19,8 +22,11 @@ import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
       // errors with exponential backoff before the extractor sees them.
       useFactory: () => new Anthropic({ maxRetries: 3 }),
     },
+    StructuredOutputService,
     ExtractorService,
+    ClassifierService,
     PipelineOrchestrator,
+    ClassificationStep,
     ExtractionStep,
     ExtractionsService,
     ExtractionQueue,

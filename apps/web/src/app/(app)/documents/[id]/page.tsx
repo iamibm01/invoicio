@@ -3,13 +3,16 @@ import { notFound } from "next/navigation"
 import { AlertTriangleIcon, LoaderCircleIcon, XCircleIcon } from "lucide-react"
 
 import { AutoRefresh } from "@/components/auto-refresh"
+import { ConfidenceBadge } from "@/components/confidence-badge"
 import { PageHeader } from "@/components/page-header"
 import { StatusBadge, type DocumentStatus } from "@/components/status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, apiFetch } from "@/lib/api"
 import {
+  documentTypeLabel,
   humanizeReason,
+  vendorCategoryLabel,
   IN_FLIGHT_STATUSES,
   type DocumentDetail,
   type ExtractionRun,
@@ -143,10 +146,31 @@ export default async function DocumentPage({ params }: PageProps<"/documents/[id
         </div>
         <section className="flex flex-col gap-4">
           <h2 className="text-heading">Extracted data</h2>
+          {run?.classification && (
+            <div className="flex flex-col gap-1">
+              <p className="flex flex-wrap items-center gap-2 text-body">
+                <span className="font-medium">{documentTypeLabel(run.classification.documentType)}</span>
+                {run.classification.vendorCategory && (
+                  <span className="text-muted-foreground">
+                    · {vendorCategoryLabel(run.classification.vendorCategory)}
+                  </span>
+                )}
+                <ConfidenceBadge score={run.classification.confidence} />
+              </p>
+              {run.classification.reason && (
+                <p className="text-caption text-muted-foreground">{run.classification.reason}</p>
+              )}
+            </div>
+          )}
           {panel}
           {run?.completedAt && (
             <p className="text-caption text-muted-foreground tabular">
-              {[run.model, run.promptVersion, `${run.attempts} attempt${run.attempts === 1 ? "" : "s"}`, formatDuration(run)]
+              {[
+                run.model,
+                run.promptVersion,
+                `${run.attempts} attempt${run.attempts === 1 ? "" : "s"}`,
+                formatDuration(run),
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </p>

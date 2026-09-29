@@ -6,11 +6,13 @@ import path from 'node:path';
 import sharp from 'sharp';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { ClassifierService } from '../src/extractions/classification.js';
 import { flattenExtraction, type ExtractionOutput } from '../src/extractions/extraction.schema.js';
 import { ExtractionsService } from '../src/extractions/extractions.service.js';
 import { ExtractorService } from '../src/extractions/extractor.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { setupApp } from '../src/setup-app.js';
+import { fakeClassifier } from './fakes.js';
 
 interface Field {
   id: string;
@@ -40,6 +42,7 @@ describe('Reviews (e2e)', () => {
     total: s('42.50'),
     lineItems: [{ description: s('Trip fare'), quantity: s(null), amount: s('40.00') }],
   };
+  const classifier = fakeClassifier();
   const extract = vi.fn<ExtractorService['extract']>(async () => ({
     output,
     fields: flattenExtraction(output),
@@ -116,6 +119,8 @@ describe('Reviews (e2e)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ExtractorService)
       .useValue({ extract })
+      .overrideProvider(ClassifierService)
+      .useValue(classifier)
       .compile();
     app = moduleRef.createNestApplication();
     setupApp(app);

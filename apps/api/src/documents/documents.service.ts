@@ -4,7 +4,7 @@ import type { Readable } from 'node:stream';
 import type { AuthUser } from '../auth/auth.types.js';
 import { ExtractionQueue } from '../extractions/extraction-queue.js';
 import { compareFieldPaths } from '../extractions/extraction.schema.js';
-import { reviewReasons, stepFailureReason } from '../extractions/review-policy.js';
+import { runReviewReasons } from '../extractions/review-policy.js';
 import { currentValue, latestCorrection } from '../reviews/latest-correction.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -27,19 +27,11 @@ export interface UploadedFile {
   size: number;
 }
 
-/**
- * Why a run's output needs a person: low-confidence or missing fields, plus
- * any optional step that failed in a PARTIAL run. A FAILED run has nothing
- * to review.
- */
-function runReviewReasons(
-  status: string,
-  fields: Parameters<typeof reviewReasons>[0],
-  errors: Prisma.JsonValue,
-): string[] {
-  if (status !== 'SUCCEEDED' && status !== 'PARTIAL') return [];
-  const failedSteps = status === 'PARTIAL' && errors && typeof errors === 'object' ? Object.keys(errors) : [];
-  return [...reviewReasons(fields), ...failedSteps.map(stepFailureReason)];
+/** The `reason` a SKIPPED step stored in its error column, if any. */
+function skipReason(error: Prisma.JsonValue): string | undefined {
+  return error && typeof error === 'object' && !Array.isArray(error) && typeof error.reason === 'string'
+    ? error.reason
+    : undefined;
 }
 
 /** Every method is scoped to the caller's business. */
@@ -156,6 +148,14 @@ export class DocumentsService {
             errors: true,
             startedAt: true,
             completedAt: true,
+            documentType: true,
+            documentTypeConfidence: true,
+            vendorCategory: true,
+            classificationReason: true,
+            steps: {
+              orderBy: { startedAt: 'asc' },
+              select: { name: true, status: true, model: true, error: true, startedAt: true, completedAt: true },
+            },
             fields: {
               select: {
                 id: true,
@@ -175,6 +175,11 @@ export class DocumentsService {
     const { extractions, ...summary } = document;
     const latest = extractions[0];
     if (!latest) return { ...summary, extraction: null };
+    const { documentType, documentTypeConfidence, vendorCategory, classificationReason, steps, ...run } = latest;
+    const classification =
+      documentType && documentTypeConfidence !== null
+        ? { documentType, confidence: documentTypeConfidence, vendorCategory, reason: classificationReason }
+        : null;
 
     const modelFields = latest.fields.sort((a, b) => compareFieldPaths(a.path, b.path));
     // `value` is what currently counts (the latest correction, if any);
@@ -191,15 +196,32 @@ export class DocumentsService {
       };
     });
 
+    const finished = run.status === 'SUCCEEDED' || run.status === 'PARTIAL';
     return {
       ...summary,
       extraction: {
-        ...latest,
+        ...run,
+        classification,
+        steps: steps.map(({ error, ...step }) => ({
+          ...step,
+          // Skipped steps carry { reason }; failures carry { kind, message, retryable }.
+          detail: error,
+        })),
         fields,
         // Why the model's output was flagged: judged on the model's values,
         // and recomputed so it reflects the current policy (the audit log
         // keeps the reasons as they were at the time).
-        reviewReasons: runReviewReasons(latest.status, modelFields, latest.errors),
+        reviewReasons: finished
+          ? runReviewReasons({
+              fields: modelFields,
+              classification,
+              steps: steps.flatMap((step) =>
+                step.status === 'FAILED' || step.status === 'SKIPPED'
+                  ? [{ key: step.name.toLowerCase(), status: step.status, reason: skipReason(step.error) }]
+                  : [],
+              ),
+            })
+          : [],
       },
     };
   }

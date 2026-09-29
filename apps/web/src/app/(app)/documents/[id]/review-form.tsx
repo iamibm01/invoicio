@@ -57,7 +57,10 @@ export function ReviewForm({ documentId, status, fields }: ReviewFormProps) {
   const isDirty = (field: ExtractionField) => current(field) !== initial(field)
 
   const changed = fields.filter(isDirty)
-  const corrections = changed.map((field) => ({ fieldId: field.id, value: current(field) }))
+  const corrections = changed.map((field) => ({
+    fieldId: field.id,
+    value: current(field),
+  }))
   const reviewed = status === "DONE"
 
   const summary = fields.filter((f) => !f.path.startsWith("lineItems."))
@@ -88,68 +91,80 @@ export function ReviewForm({ documentId, status, fields }: ReviewFormProps) {
         </Alert>
       )}
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Field</TableHead>
-            <TableHead>Value</TableHead>
-            <TableHead className="text-right">Confidence</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {summary.map((field) => (
-            <TableRow key={field.id} className={cn(flagged(field, reviewed) && "bg-warning/5")}>
-              <TableCell className="align-top pt-3.5 text-muted-foreground">
-                <label htmlFor={field.id}>{fieldLabel(field.path)}</label>
-              </TableCell>
-              <TableCell className="w-full">{input(field)}</TableCell>
-              <TableCell className="align-top pt-3 text-right">
-                <FieldBadge field={field} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <section className="flex flex-col gap-2">
-        <h3 className="text-heading">Line items</h3>
-        {lineItems.length === 0 ? (
-          <p className="text-body text-muted-foreground">No line items on this document.</p>
-        ) : (
+      {fields.length === 0 ? (
+        // Extraction was skipped (e.g. not a receipt). Confirming records that
+        // a person agrees; a wrongly skipped document needs a re-run instead.
+        <p className="rounded-md border border-dashed p-6 text-center text-body text-muted-foreground">
+          No fields were extracted from this document.
+        </p>
+      ) : (
+        <>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead className="w-16">Qty</TableHead>
-                <TableHead className="w-28">Amount</TableHead>
+                <TableHead>Field</TableHead>
+                <TableHead>Value</TableHead>
+                <TableHead className="text-right">Confidence</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lineItems.map(([index, item]) => (
-                <TableRow
-                  key={index}
-                  className={cn(LINE_ITEM_COLUMNS.some((c) => item[c] && flagged(item[c], reviewed)) && "bg-warning/5")}
-                >
-                  {LINE_ITEM_COLUMNS.map((column) => {
-                    const field = item[column]
-                    return (
-                      <TableCell key={column} className="align-top">
-                        {field && (
-                          <div className="flex flex-col gap-1">
-                            {input(field, column === "description" ? undefined : "text-right")}
-                            {/* Only flag the cells that need attention; ten "High" badges per row would bury the one that matters. */}
-                            {(field.correction || needsReview(field.confidence)) && <FieldBadge field={field} />}
-                          </div>
-                        )}
-                      </TableCell>
-                    )
-                  })}
+              {summary.map((field) => (
+                <TableRow key={field.id} className={cn(flagged(field, reviewed) && "bg-warning/5")}>
+                  <TableCell className="align-top pt-3.5 text-muted-foreground">
+                    <label htmlFor={field.id}>{fieldLabel(field.path)}</label>
+                  </TableCell>
+                  <TableCell className="w-full">{input(field)}</TableCell>
+                  <TableCell className="align-top pt-3 text-right">
+                    <FieldBadge field={field} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        )}
-      </section>
+
+          <section className="flex flex-col gap-2">
+            <h3 className="text-heading">Line items</h3>
+            {lineItems.length === 0 ? (
+              <p className="text-body text-muted-foreground">No line items on this document.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead className="w-16">Qty</TableHead>
+                    <TableHead className="w-28">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lineItems.map(([index, item]) => (
+                    <TableRow
+                      key={index}
+                      className={cn(
+                        LINE_ITEM_COLUMNS.some((c) => item[c] && flagged(item[c], reviewed)) && "bg-warning/5",
+                      )}
+                    >
+                      {LINE_ITEM_COLUMNS.map((column) => {
+                        const field = item[column]
+                        return (
+                          <TableCell key={column} className="align-top">
+                            {field && (
+                              <div className="flex flex-col gap-1">
+                                {input(field, column === "description" ? undefined : "text-right")}
+                                {/* Only flag the cells that need attention; ten "High" badges per row would bury the one that matters. */}
+                                {(field.correction || needsReview(field.confidence)) && <FieldBadge field={field} />}
+                              </div>
+                            )}
+                          </TableCell>
+                        )
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </section>
+        </>
+      )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
         {changed.length > 0 && (
@@ -200,7 +215,12 @@ function FieldInput({ field, value, dirty, error, onChange, className }: FieldIn
       : field.valueType === "MONEY" || field.valueType === "NUMBER"
         ? { type: "text", inputMode: "decimal" as const, className: "tabular" }
         : field.valueType === "CURRENCY_CODE"
-          ? { type: "text", maxLength: 3, className: "uppercase", autoCapitalize: "characters" }
+          ? {
+              type: "text",
+              maxLength: 3,
+              className: "uppercase",
+              autoCapitalize: "characters",
+            }
           : { type: "text" }
 
   const errorId = `${field.id}-error`
@@ -225,8 +245,12 @@ function FieldInput({ field, value, dirty, error, onChange, className }: FieldIn
       )}
       {showOriginal && field.correction && (
         <p className="text-caption text-muted-foreground">
-          Model read “{formatFieldValue({ valueType: field.valueType, value: field.aiValue })}” · corrected by{" "}
-          {field.correction.by}
+          Model read “
+          {formatFieldValue({
+            valueType: field.valueType,
+            value: field.aiValue,
+          })}
+          ” · corrected by {field.correction.by}
         </p>
       )}
     </div>

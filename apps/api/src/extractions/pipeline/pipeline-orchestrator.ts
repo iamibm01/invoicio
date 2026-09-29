@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PipelineStepStatus } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { ExtractionFailedError } from '../extractor.service.js';
+import { ModelCallError } from '../model/structured-output.service.js';
 import type {
   PipelineContext,
   PipelineResult,
@@ -43,7 +43,7 @@ export class PipelineOrchestrator {
             completedAt: new Date(),
           },
         });
-        skipped.push({ step: step.name, reason });
+        skipped.push({ step: step.name, key: step.key, reason });
         continue;
       }
 
@@ -60,6 +60,7 @@ export class PipelineOrchestrator {
             data: {
               status: PipelineStepStatus.SUCCEEDED,
               model: output.model,
+              promptVersion: output.promptVersion,
               inputTokens: output.usage?.inputTokens,
               outputTokens: output.usage?.outputTokens,
               completedAt: new Date(),
@@ -97,7 +98,7 @@ export class PipelineOrchestrator {
  */
 function describeFailure(step: PipelineStep, error: unknown): StepFailure {
   const common = { step: step.name, key: step.key, required: step.required, cause: error };
-  if (error instanceof ExtractionFailedError) {
+  if (error instanceof ModelCallError) {
     return { ...common, kind: error.kind, message: error.message, retryable: error.retryable };
   }
   return {

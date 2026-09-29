@@ -40,3 +40,34 @@ export function reviewReasons(fields: PredictedField[]): string[] {
 export function stepFailureReason(step: string): string {
   return `${step} step failed`;
 }
+
+/** What runReviewReasons needs to know about a finished run. */
+export interface RunForReview {
+  fields: PredictedField[];
+  classification: { documentType: string; confidence: number } | null;
+  /** Steps that didn't succeed; `key` is the step's lower-case name, e.g. "validation". */
+  steps: { key: string; status: 'FAILED' | 'SKIPPED'; reason?: string }[];
+}
+
+/**
+ * Every reason a finished run needs a person, in one place. Used both when a
+ * run completes (to choose REVIEW or DONE) and when a document is shown (to
+ * explain why), so the two can never disagree.
+ */
+export function runReviewReasons(run: RunForReview): string[] {
+  const reasons: string[] = [];
+
+  // If extraction was skipped, "vendorName missing" etc. would be noise:
+  // the skip reason (e.g. "Not a receipt or invoice: ...") is the explanation.
+  const extractionSkipped = run.steps.find((s) => s.key === 'extraction' && s.status === 'SKIPPED');
+  if (extractionSkipped) reasons.push(extractionSkipped.reason ?? 'extraction skipped');
+  else reasons.push(...reviewReasons(run.fields));
+
+  if (run.classification && run.classification.confidence < CONFIDENCE_THRESHOLDS.high) {
+    reasons.push(`document type uncertain (${run.classification.documentType.toLowerCase()})`);
+  }
+  for (const step of run.steps) {
+    if (step.status === 'FAILED') reasons.push(stepFailureReason(step.key));
+  }
+  return reasons;
+}

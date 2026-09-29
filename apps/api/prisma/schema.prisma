@@ -56,6 +56,22 @@ enum FieldValueType {
   CURRENCY_CODE
 }
 
+/// Coarse kind of business that issued a document, set by the classifier.
+/// A fixed list on purpose: it's a hint for downstream steps, not the
+/// business's own expense categories (those are per-business and editable).
+enum VendorCategory {
+  TRANSPORT
+  FOOD_AND_DRINK
+  GROCERIES
+  RETAIL
+  SOFTWARE_AND_SUBSCRIPTIONS
+  UTILITIES_AND_TELECOM
+  TRAVEL_AND_LODGING
+  PROFESSIONAL_SERVICES
+  HEALTH
+  OTHER
+}
+
 enum ApprovalStatus {
   SUBMITTED
   APPROVED
@@ -155,23 +171,29 @@ model Document {
 /// One pipeline run over a document. Re-processing creates a new row, so the
 /// history of runs (and which model/prompt produced them) is kept.
 model Extraction {
-  id            String           @id @default(uuid(7)) @db.Uuid
-  businessId    String           @db.Uuid
-  documentId    String           @db.Uuid
-  status        ExtractionStatus @default(RUNNING)
-  /// Classifier output; null until classification has run
-  documentType  DocumentType?
+  id                     String           @id @default(uuid(7)) @db.Uuid
+  businessId             String           @db.Uuid
+  documentId             String           @db.Uuid
+  status                 ExtractionStatus @default(RUNNING)
+  /// Classifier output; null until classification has run (or if it failed)
+  documentType           DocumentType?
+  /// 0–1: the classifier's confidence in documentType
+  documentTypeConfidence Float?
+  /// Coarse kind of business that issued the document
+  vendorCategory         VendorCategory?
+  /// One sentence from the classifier citing what on the document shows its type
+  classificationReason   String?
   /// Model id and prompt version, so accuracy can be compared across runs
-  model         String
-  promptVersion String
+  model                  String
+  promptVersion          String
   /// Number of attempts made after malformed/invalid model output
-  attempts      Int              @default(1)
+  attempts               Int              @default(1)
   /// Unparsed model output, kept for debugging and evaluation
-  rawOutput     Json?
+  rawOutput              Json?
   /// Per-step errors, e.g. { validation: "..." } for a PARTIAL run
-  errors        Json?
-  startedAt     DateTime         @default(now())
-  completedAt   DateTime?
+  errors                 Json?
+  startedAt              DateTime         @default(now())
+  completedAt            DateTime?
 
   business Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   document Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -202,19 +224,21 @@ enum PipelineStepStatus {
 /// so a crash mid-run still shows which step was running, and per-step cost
 /// and failure rates can be queried directly.
 model PipelineStep {
-  id           String             @id @default(uuid(7)) @db.Uuid
-  businessId   String             @db.Uuid
-  extractionId String             @db.Uuid
-  name         PipelineStepName
-  status       PipelineStepStatus @default(RUNNING)
+  id            String             @id @default(uuid(7)) @db.Uuid
+  businessId    String             @db.Uuid
+  extractionId  String             @db.Uuid
+  name          PipelineStepName
+  status        PipelineStepStatus @default(RUNNING)
   /// Model that answered; null for steps that are plain code
-  model        String?
-  inputTokens  Int?
-  outputTokens Int?
+  model         String?
+  /// Version of the step's prompt, so runs can be compared per step
+  promptVersion String?
+  inputTokens   Int?
+  outputTokens  Int?
   /// { kind, message, retryable } when FAILED, { reason } when SKIPPED
-  error        Json?
-  startedAt    DateTime           @default(now())
-  completedAt  DateTime?
+  error         Json?
+  startedAt     DateTime           @default(now())
+  completedAt   DateTime?
 
   business   Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   extraction Extraction @relation(fields: [extractionId], references: [id], onDelete: Cascade)

@@ -6,7 +6,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
-import { ExtractionFailedError } from '../src/extractions/extractor.service.js';
+import { ModelCallError } from '../src/extractions/model/structured-output.service.js';
 import { PipelineOrchestrator } from '../src/extractions/pipeline/pipeline-orchestrator.js';
 import type {
   PipelineContext,
@@ -147,7 +147,7 @@ describe('PipelineOrchestrator (e2e)', () => {
     const result = await orchestrator.run(context, [
       step(PipelineStepName.EXTRACTION, 'extraction', { required: true }),
       step(PipelineStepName.VALIDATION, 'validation', {
-        run: () => Promise.reject(new ExtractionFailedError('api', 'Overloaded', 1, true, [])),
+        run: () => Promise.reject(new ModelCallError('api', 'Overloaded', 1, true, [])),
       }),
       step(PipelineStepName.CATEGORIZATION, 'categorization'),
     ]);

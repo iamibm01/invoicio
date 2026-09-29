@@ -13,6 +13,11 @@ process.env.QUEUE_PREFIX = `invoicio-test-${randomUUID()}`;
 // API calls.
 process.env.EXTRACTION_WORKER ??= 'off';
 
+// Tests must never reach the real model API: every model-backed service is
+// faked. If a test forgets one, this key makes the call fail with a 401
+// instead of silently spending money.
+process.env.ANTHROPIC_API_KEY = 'sk-ant-e2e-no-real-calls';
+
 // The startup recovery sweep acts on every business in the database, and the
 // e2e database is the dev database. Tests call the scoped recover() instead.
 process.env.EXTRACTION_RECOVERY = 'off';

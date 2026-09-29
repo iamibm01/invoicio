@@ -31,22 +31,22 @@ import {
 } from '../src/evals/score.js';
 import { toDocumentBlock } from '../src/extractions/document-input.js';
 import { PROMPT_VERSION } from '../src/extractions/extraction.prompt.js';
+import { EXTRACTION_MODEL, ExtractorService } from '../src/extractions/extractor.service.js';
 import {
-  EXTRACTION_MODEL,
-  ExtractionFailedError,
-  ExtractorService,
+  ModelCallError,
+  StructuredOutputService,
   SUPPORTED_MODELS,
   type Effort,
-  type ExtractionModel,
+  type SupportedModel,
   type TokenUsage,
-} from '../src/extractions/extractor.service.js';
+} from '../src/extractions/model/structured-output.service.js';
 import { CONFIDENCE_THRESHOLDS } from '../src/extractions/review-policy.js';
 
 const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 interface Options {
   datasets: string[];
-  model: ExtractionModel;
+  model: SupportedModel;
   effort: Effort;
   limit?: number;
   concurrency: number;
@@ -72,7 +72,7 @@ function parseArgs(argv: string[]): Options {
   const flagsWithValues = new Set(['--model', '--effort', '--limit', '--concurrency']);
   const datasets = argv.filter((a, i) => !a.startsWith('--') && !flagsWithValues.has(argv[i - 1]));
 
-  const model = (value('--model') ?? EXTRACTION_MODEL) as ExtractionModel;
+  const model = (value('--model') ?? EXTRACTION_MODEL) as SupportedModel;
   const effort = (value('--effort') ?? 'high') as Effort;
   const limit = value('--limit') ? Number(value('--limit')) : undefined;
   const concurrency = Number(value('--concurrency') ?? 2);
@@ -125,7 +125,7 @@ async function main() {
     `Evaluating ${documents.length} documents · ${options.model} · effort ${options.effort} · prompt ${PROMPT_VERSION}`,
   );
 
-  const extractor = new ExtractorService(new Anthropic({ maxRetries: 3 }));
+  const extractor = new ExtractorService(new StructuredOutputService(new Anthropic({ maxRetries: 3 })));
   const records: RunRecord[] = [];
   const scores: DocumentScore[] = await mapPool(documents, options.concurrency, async (doc) => {
     const started = performance.now();
@@ -149,7 +149,7 @@ async function main() {
         costUsd: estimateCost(result.model, result.usage),
       });
     } catch (error) {
-      if (!(error instanceof ExtractionFailedError)) throw error;
+      if (!(error instanceof ModelCallError)) throw error;
       // A failed extraction still counts: every labelled field is scored as
       // missed, the same outcome a user would get.
       Object.assign(record, { error: `${error.kind}: ${error.message}`, attempts: error.attempts });

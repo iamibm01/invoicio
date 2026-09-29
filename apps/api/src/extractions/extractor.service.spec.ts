@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { DocumentBlock } from './document-input.js';
 import type { ExtractionOutput } from './extraction.schema.js';
-import { ExtractionFailedError, ExtractorService, MAX_ATTEMPTS } from './extractor.service.js';
+import { ExtractorService } from './extractor.service.js';
+import { MAX_ATTEMPTS, ModelCallError, StructuredOutputService } from './model/structured-output.service.js';
 
 const s = (value: string | null, confidence = 0.95) => ({ value, confidence });
 
@@ -41,13 +42,13 @@ function setup(...responses: Array<Anthropic.Beta.BetaMessage | Error>) {
     else create.mockResolvedValueOnce(r);
   }
   const client = { beta: { messages: { create } } } as unknown as Anthropic;
-  return { extractor: new ExtractorService(client), create };
+  return { extractor: new ExtractorService(new StructuredOutputService(client)), create };
 }
 
-async function failure(promise: Promise<unknown>): Promise<ExtractionFailedError> {
+async function failure(promise: Promise<unknown>): Promise<ModelCallError> {
   const error = await promise.catch((e: unknown) => e);
-  expect(error).toBeInstanceOf(ExtractionFailedError);
-  return error as ExtractionFailedError;
+  expect(error).toBeInstanceOf(ModelCallError);
+  return error as ModelCallError;
 }
 
 describe('ExtractorService', () => {

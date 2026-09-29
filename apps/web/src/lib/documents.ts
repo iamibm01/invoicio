@@ -38,12 +38,33 @@ export interface ExtractionField {
 
 export type FailureKind = "refused" | "malformed" | "api" | "internal"
 
+export type DocumentType = "RECEIPT" | "INVOICE" | "OTHER"
+
+export interface Classification {
+  documentType: DocumentType
+  confidence: number
+  vendorCategory: string | null
+  /** The classifier's one-sentence justification */
+  reason: string | null
+}
+
+export interface PipelineStepSummary {
+  name: "CLASSIFICATION" | "EXTRACTION" | "VALIDATION" | "CATEGORIZATION"
+  status: "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED"
+  model: string | null
+  startedAt: string
+  completedAt: string | null
+}
+
 export interface ExtractionRun {
   id: string
   status: "RUNNING" | "SUCCEEDED" | "PARTIAL" | "FAILED"
   model: string
   promptVersion: string
   attempts: number
+  /** Null if classification hasn't run or failed */
+  classification: Classification | null
+  steps: PipelineStepSummary[]
   /** Keyed by pipeline step, e.g. { extraction: { kind, message } } */
   errors: Record<string, { kind: FailureKind; message: string; retryable: boolean }> | null
   startedAt: string
@@ -91,4 +112,20 @@ export function formatFieldValue(field: Pick<ExtractionField, "valueType" | "val
   if (field.value === null) return "—"
   if (field.valueType === "DATE") return dateFormat.format(new Date(`${field.value}T00:00:00Z`))
   return field.value
+}
+
+const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  RECEIPT: "Receipt",
+  INVOICE: "Invoice",
+  OTHER: "Not a receipt or invoice",
+}
+
+export function documentTypeLabel(type: DocumentType): string {
+  return DOCUMENT_TYPE_LABELS[type]
+}
+
+/** "FOOD_AND_DRINK" → "Food and drink" */
+export function vendorCategoryLabel(category: string): string {
+  const words = category.toLowerCase().replaceAll("_", " ")
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }

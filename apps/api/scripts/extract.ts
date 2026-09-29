@@ -17,7 +17,12 @@ import path from 'node:path';
 import { detectFileType } from '../src/documents/detect-file-type.js';
 import { MAX_UPLOAD_BYTES } from '../src/documents/upload-rules.js';
 import { toDocumentBlock } from '../src/extractions/document-input.js';
-import { ExtractionFailedError, ExtractorService, type TokenUsage } from '../src/extractions/extractor.service.js';
+import { ExtractorService } from '../src/extractions/extractor.service.js';
+import {
+  ModelCallError,
+  StructuredOutputService,
+  type TokenUsage,
+} from '../src/extractions/model/structured-output.service.js';
 import { CONFIDENCE_THRESHOLDS, reviewReasons } from '../src/extractions/review-policy.js';
 import { mergeLabels, readLabelsFile, writeLabelsFile } from '../src/evals/labels-file.js';
 import { estimateCost } from '../src/evals/pricing.js';
@@ -76,7 +81,7 @@ async function extractFile(
     if (printJson) console.log(`\n${JSON.stringify(result.output, null, 2)}`);
     return result.fields;
   } catch (error) {
-    if (!(error instanceof ExtractionFailedError)) throw error;
+    if (!(error instanceof ModelCallError)) throw error;
     console.log(`  FAILED (${error.kind}, retryable: ${error.retryable}) after ${error.attempts} attempt(s): ${error.message}`);
     return null;
   }
@@ -110,7 +115,7 @@ async function main() {
   const labelsDir = labelsPath ? path.dirname(path.resolve(labelsPath)) : '';
   let labels = labelsPath ? await readLabelsFile(labelsPath) : [];
 
-  const extractor = new ExtractorService(new Anthropic({ maxRetries: 3 }));
+  const extractor = new ExtractorService(new StructuredOutputService(new Anthropic({ maxRetries: 3 })));
   // One at a time: easier to follow, and gentler on rate limits.
   for (const file of files.map((f) => path.resolve(f))) {
     if (file === path.resolve(labelsPath ?? '')) continue;

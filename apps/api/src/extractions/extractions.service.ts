@@ -6,11 +6,13 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { toDocumentBlock, type DocumentBlock } from './document-input.js';
 import { PROMPT_VERSION } from './extraction.prompt.js';
-import { EXTRACTION_MODEL, ExtractionFailedError } from './extractor.service.js';
+import { EXTRACTION_MODEL } from './extractor.service.js';
+import { ModelCallError } from './model/structured-output.service.js';
+import { ClassificationStep } from './pipeline/classification.step.js';
 import { ExtractionStep } from './pipeline/extraction.step.js';
 import { PipelineOrchestrator } from './pipeline/pipeline-orchestrator.js';
 import type { FailureKind, PipelineResult, PipelineStep, StepKey } from './pipeline/pipeline.types.js';
-import { reviewReasons, stepFailureReason } from './review-policy.js';
+import { runReviewReasons } from './review-policy.js';
 
 export type RunOutcome =
   | {
@@ -44,16 +46,17 @@ const RUNNABLE: DocumentStatus[] = [DocumentStatus.QUEUED, DocumentStatus.FAILED
 export class ExtractionsService {
   private readonly logger = new Logger(ExtractionsService.name);
 
-  /** The pipeline, in order. Classification, validation and categorization join as they're built. */
+  /** The pipeline, in order. Validation and categorization join as they're built. */
   private readonly steps: PipelineStep[];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly orchestrator: PipelineOrchestrator,
+    classificationStep: ClassificationStep,
     extractionStep: ExtractionStep,
   ) {
-    this.steps = [extractionStep];
+    this.steps = [classificationStep, extractionStep];
   }
 
   async run(businessId: string, documentId: string): Promise<RunOutcome> {
@@ -86,10 +89,10 @@ export class ExtractionsService {
   }
 
   /**
-   * SUCCEEDED or PARTIAL. The fields were already saved by the extraction
-   * step; this sets the final statuses. A document is DONE only when nothing
-   * needs a person: no low-confidence or missing fields, and no step that
-   * failed (its checks are missing, so a person has to stand in for them).
+   * SUCCEEDED or PARTIAL. Each step already saved its own output; this sets
+   * the final statuses. A document is DONE only when nothing needs a person
+   * (see runReviewReasons): no low-confidence or missing fields, a confident
+   * classification, and no failed or skipped step standing in the way.
    */
   private async recordSuccess(
     businessId: string,
@@ -98,7 +101,15 @@ export class ExtractionsService {
     result: PipelineResult,
   ): Promise<RunOutcome> {
     const fields = result.state.extraction?.fields ?? [];
-    const reasons = [...reviewReasons(fields), ...result.failures.map((f) => stepFailureReason(f.key))];
+    const classification = result.state.classification?.output ?? null;
+    const reasons = runReviewReasons({
+      fields,
+      classification,
+      steps: [
+        ...result.skipped.map((s) => ({ key: s.key, status: 'SKIPPED' as const, reason: s.reason })),
+        ...result.failures.map((f) => ({ key: f.key, status: 'FAILED' as const })),
+      ],
+    });
     const documentStatus = reasons.length > 0 ? DocumentStatus.REVIEW : DocumentStatus.DONE;
     const status = result.status === 'PARTIAL' ? ExtractionStatus.PARTIAL : ExtractionStatus.SUCCEEDED;
     const errors = Object.fromEntries(
@@ -156,7 +167,7 @@ export class ExtractionsService {
     // missing, a corrupt image, a bug) is still recorded, then rethrown so
     // it shows up in logs as the error it is.
     const failure =
-      error instanceof ExtractionFailedError
+      error instanceof ModelCallError
         ? { kind: error.kind, retryable: error.retryable, attempts: error.attempts, rawOutputs: error.rawOutputs }
         : { kind: 'internal' as const, retryable: false, attempts: 0, rawOutputs: [] };
     const message = error instanceof Error ? error.message : String(error);

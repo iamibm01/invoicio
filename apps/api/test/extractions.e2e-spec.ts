@@ -6,15 +6,14 @@ import path from 'node:path';
 import sharp from 'sharp';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { ClassifierService } from '../src/extractions/classification.js';
 import { flattenExtraction, type ExtractionOutput } from '../src/extractions/extraction.schema.js';
 import { ExtractionsService } from '../src/extractions/extractions.service.js';
-import {
-  ExtractionFailedError,
-  ExtractorService,
-  type ExtractionResult,
-} from '../src/extractions/extractor.service.js';
+import { ExtractorService, type ExtractionResult } from '../src/extractions/extractor.service.js';
+import { ModelCallError } from '../src/extractions/model/structured-output.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { setupApp } from '../src/setup-app.js';
+import { fakeClassifier } from './fakes.js';
 
 // Real database and storage; only the model call is faked, so these tests
 // check what gets persisted without spending API credits.
@@ -25,6 +24,7 @@ describe('Extractions (e2e)', () => {
   let storageDir: string;
   const createdBusinessIds: string[] = [];
   const runId = Date.now().toString(36);
+  const classifier = fakeClassifier();
   const extract = vi.fn<ExtractorService['extract']>();
 
   const s = (value: string | null, confidence = 0.95) => ({ value, confidence });
@@ -80,6 +80,8 @@ describe('Extractions (e2e)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ExtractorService)
       .useValue({ extract })
+      .overrideProvider(ClassifierService)
+      .useValue(classifier)
       .compile();
     app = moduleRef.createNestApplication();
     setupApp(app);
@@ -135,10 +137,15 @@ describe('Extractions (e2e)', () => {
     expect(audit).toMatchObject({ actorId: null });
 
     // The run went through the pipeline, which recorded the step.
-    const steps = await prisma.pipelineStep.findMany({ where: { extractionId: run.id } });
+    const steps = await prisma.pipelineStep.findMany({
+      where: { extractionId: run.id },
+      orderBy: { startedAt: 'asc' },
+    });
     expect(steps).toMatchObject([
-      { name: 'EXTRACTION', status: 'SUCCEEDED', model: 'claude-opus-4-8', inputTokens: 1000, outputTokens: 200 },
+      { name: 'CLASSIFICATION', status: 'SUCCEEDED', promptVersion: 'classify-v1', inputTokens: 700 },
+      { name: 'EXTRACTION', status: 'SUCCEEDED', model: 'claude-opus-4-8', promptVersion: 'extract-v1', inputTokens: 1000 },
     ]);
+    expect(run).toMatchObject({ documentType: 'RECEIPT', documentTypeConfidence: 0.97, vendorCategory: 'TRANSPORT' });
   });
 
   it('sends low-confidence or incomplete extractions to REVIEW with reasons', async () => {
@@ -156,7 +163,7 @@ describe('Extractions (e2e)', () => {
   it('records a model failure, and allows a retry that creates a second run', async () => {
     const documentId = await uploadDocument();
     extract.mockRejectedValueOnce(
-      new ExtractionFailedError('api', 'Overloaded', 1, true, [[{ type: 'text', text: 'partial' }]]),
+      new ModelCallError('api', 'Overloaded', 1, true, [[{ type: 'text', text: 'partial' }]]),
     );
 
     const failed = await extractions.run(tenant.businessId, documentId);
@@ -203,6 +210,75 @@ describe('Extractions (e2e)', () => {
     const otherBusiness = '00000000-0000-7000-8000-000000000000';
     await expect(extractions.run(otherBusiness, documentId)).rejects.toThrow(NotFoundException);
     expect((await load(documentId)).status).toBe('QUEUED');
+  });
+
+  describe('classification', () => {
+    const detail = async (id: string) =>
+      (await request(app.getHttpServer()).get(`/documents/${id}`).set('Authorization', `Bearer ${tenant.token}`).expect(200)).body;
+
+    it('skips extraction for a document confidently classified as not an expense', async () => {
+      const documentId = await uploadDocument();
+      classifier.classify.mockResolvedValueOnce({
+        output: { documentType: 'OTHER', confidence: 0.96, vendorCategory: null, reason: 'A screenshot of an app settings page.' },
+        model: 'claude-opus-5',
+        attempts: 1,
+        usage: { inputTokens: 700, outputTokens: 40 },
+        rawOutputs: [],
+      });
+
+      const outcome = await extractions.run(tenant.businessId, documentId);
+      expect(outcome).toMatchObject({
+        status: 'SUCCEEDED',
+        documentStatus: 'REVIEW',
+        reviewReasons: ['Not a receipt or invoice: A screenshot of an app settings page.'],
+      });
+      expect(extract).not.toHaveBeenCalled();
+
+      const body = await detail(documentId);
+      expect(body.extraction.classification).toMatchObject({ documentType: 'OTHER', confidence: 0.96 });
+      expect(body.extraction.fields).toEqual([]);
+      expect(body.extraction.steps.map((st: { name: string; status: string }) => [st.name, st.status])).toEqual([
+        ['CLASSIFICATION', 'SUCCEEDED'],
+        ['EXTRACTION', 'SKIPPED'],
+      ]);
+      expect(body.extraction.reviewReasons).toEqual(outcome.status !== 'FAILED' ? outcome.reviewReasons : []);
+    });
+
+    it('still extracts when the classifier is unsure, and flags the uncertainty', async () => {
+      const documentId = await uploadDocument();
+      classifier.classify.mockResolvedValueOnce({
+        output: { documentType: 'OTHER', confidence: 0.7, vendorCategory: null, reason: 'Could be a receipt; heavily cropped.' },
+        model: 'claude-opus-5',
+        attempts: 1,
+        usage: { inputTokens: 700, outputTokens: 40 },
+        rawOutputs: [],
+      });
+      extract.mockResolvedValueOnce(result(output()));
+
+      const outcome = await extractions.run(tenant.businessId, documentId);
+      expect(extract).toHaveBeenCalledOnce();
+      expect(outcome).toMatchObject({ documentStatus: 'REVIEW', reviewReasons: ['document type uncertain (other)'] });
+    });
+
+    it('makes the run PARTIAL, not FAILED, when classification fails', async () => {
+      const documentId = await uploadDocument();
+      classifier.classify.mockRejectedValueOnce(new ModelCallError('api', 'Overloaded', 1, true, []));
+      extract.mockResolvedValueOnce(result(output()));
+
+      const outcome = await extractions.run(tenant.businessId, documentId);
+      expect(outcome).toMatchObject({
+        status: 'PARTIAL',
+        documentStatus: 'REVIEW',
+        reviewReasons: ['classification step failed'],
+      });
+      const doc = await load(documentId);
+      expect(doc.extractions[0]).toMatchObject({
+        status: 'PARTIAL',
+        documentType: null,
+        errors: { classification: { kind: 'api', retryable: true } },
+      });
+      expect(doc.extractions[0].fields).toHaveLength(10);
+    });
   });
 
   describe('GET /documents/:id', () => {

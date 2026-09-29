@@ -1,4 +1,4 @@
-import type { TokenUsage } from '../extractions/extractor.service.js';
+import type { TokenUsage } from '../extractions/model/structured-output.service.js';
 
 /**
  * List prices, USD per million tokens (Anthropic API, as of 2026-09).

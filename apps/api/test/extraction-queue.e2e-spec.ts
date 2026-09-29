@@ -6,11 +6,13 @@ import path from 'node:path';
 import sharp from 'sharp';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { ClassifierService } from '../src/extractions/classification.js';
 import { ExtractionRecoveryService } from '../src/extractions/extraction-recovery.service.js';
 import { flattenExtraction, type ExtractionOutput } from '../src/extractions/extraction.schema.js';
 import { ExtractorService, type ExtractionResult } from '../src/extractions/extractor.service.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { setupApp } from '../src/setup-app.js';
+import { fakeClassifier } from './fakes.js';
 
 // This file runs the real worker against real Redis; only the model is faked.
 process.env.EXTRACTION_WORKER = 'on';
@@ -43,6 +45,7 @@ describe('Extraction queue (e2e)', () => {
     usage: { inputTokens: 1000, outputTokens: 200 },
     rawOutputs: [],
   };
+  const classifier = fakeClassifier();
   const extract = vi.fn<ExtractorService['extract']>(async () => result);
 
   /** Polls until the document reaches `status`; the worker runs asynchronously. */
@@ -63,6 +66,8 @@ describe('Extraction queue (e2e)', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ExtractorService)
       .useValue({ extract })
+      .overrideProvider(ClassifierService)
+      .useValue(classifier)
       .compile();
     app = moduleRef.createNestApplication();
     setupApp(app);
